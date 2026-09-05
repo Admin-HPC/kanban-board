@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Team Kanban Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <h1 id="board-title">Team Board</h1>
+    <div class="topbar-right">
+      <button class="chip" id="my-tasks-toggle" title="Show only tasks assigned to you">My tasks only</button>
+      <button class="chip" id="manage-members-btn">Team</button>
+      <button class="chip" id="whoami-chip"></button>
+    </div>
+  </div>
+
+  <div class="board" id="board">
+    <!-- columns injected by app.js -->
+  </div>
+</div>
+
+<div class="overlay" id="whoami-overlay" style="display:none;">
+  <div class="modal">
+    <h2>Who are you?</h2>
+    <p style="font-size:13px;color:var(--text-dim);margin-top:-8px;">Pick your name so teammates know who's doing what. This is just a label, not a password.</p>
+    <div class="field">
+      <label>Your name</label>
+      <select id="whoami-select"></select>
+    </div>
+    <div class="field">
+      <label>Or add yourself</label>
+      <input type="text" id="whoami-new-name" placeholder="Type your name and press Add" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn secondary" id="whoami-add">Add me</button>
+      <div class="right">
+        <button class="btn" id="whoami-continue">Continue</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="task-overlay" style="display:none;">
+  <div class="modal">
+    <h2 id="task-modal-title">New task</h2>
+    <div class="field">
+      <label>Status</label>
+      <div class="status-tabs" id="task-status-tabs">
+        <div class="status-tab todo" data-status="todo">To Do</div>
+        <div class="status-tab in_progress" data-status="in_progress">In Progress</div>
+        <div class="status-tab done" data-status="done">Done</div>
+      </div>
+    </div>
+    <div class="field">
+      <label>Title</label>
+      <input type="text" id="task-title" placeholder="e.g. Design the landing page" />
+    </div>
+    <div class="field">
+      <label>Description</label>
+      <textarea id="task-desc" placeholder="Optional details..."></textarea>
+    </div>
+    <div class="row-2">
+      <div class="field">
+        <label>Assignee</label>
+        <select id="task-assignee"></select>
+      </div>
+      <div class="field">
+        <label>Due date</label>
+        <input type="date" id="task-due" />
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn danger ghost" id="task-delete" style="display:none;">Delete</button>
+      <div class="right">
+        <button class="btn secondary" id="task-cancel">Cancel</button>
+        <button class="btn" id="task-save">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="members-overlay" style="display:none;">
+  <div class="modal">
+    <h2>Team members</h2>
+    <div class="member-manage-list" id="member-manage-list"></div>
+    <div class="field">
+      <label>Add a member</label>
+      <input type="text" id="new-member-name" placeholder="Full name" />
+    </div>
+    <div class="modal-actions">
+      <div></div>
+      <div class="right">
+        <button class="btn secondary" id="members-close">Close</button>
+        <button class="btn" id="members-add">Add</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-holder"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
