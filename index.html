@@ -13,6 +13,30 @@
   <div class="topbar">
     <h1 id="board-title">Team Board</h1>
     <div class="topbar-right">
+      <select class="chip" id="filter-category" title="Filter by category">
+        <option value="">All categories</option>
+        <option value="Feature">Feature</option>
+        <option value="Bug">Bug</option>
+        <option value="Improvement">Improvement</option>
+        <option value="Testing">Testing</option>
+        <option value="Documentation">Documentation</option>
+      </select>
+      <select class="chip" id="filter-priority" title="Filter by priority">
+        <option value="">All priorities</option>
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+        <option value="urgent">Urgent</option>
+      </select>
+      <select class="chip" id="filter-story" title="Filter by story" style="max-width:200px;">
+        <option value="">All stories</option>
+      </select>
+      <select class="chip" id="filter-status" title="Filter by status">
+        <option value="">All status</option>
+        <option value="todo">To Do</option>
+        <option value="in_progress">In Progress</option>
+        <option value="done">Done</option>
+      </select>
       <button class="chip" id="my-tasks-toggle" title="Show only tasks assigned to you">My tasks only</button>
       <button class="chip" id="manage-members-btn">Team</button>
       <button class="chip" id="whoami-chip"></button>
@@ -61,8 +85,42 @@
       <input type="text" id="task-title" placeholder="e.g. Design the landing page" />
     </div>
     <div class="field">
+      <label>Story</label>
+    <select id="task-story">
+  <option value="">Select Story</option>
+  <option value="__create_new_story__">+ Create New Story</option>
+</select>
+    </div>
+    <div class="field" id="task-story-new-field" style="display:none;">
+      <input type="text" id="task-story-new" placeholder="Enter new story..." />
+    </div>
+    <div class="field">
+      <label>Category</label>
+      <select id="task-category">
+        <option value="Feature">Feature</option>
+        <option value="Bug">Bug</option>
+        <option value="Improvement">Improvement</option>
+        <option value="Testing">Testing</option>
+        <option value="Documentation">Documentation</option>
+      </select>
+    </div>
+    <div class="field">
       <label>Description</label>
       <textarea id="task-desc" placeholder="Optional details..."></textarea>
+    </div>
+    <div class="field">
+  <label>Done when</label>
+  <input type="date" id="task-done-when" />
+</div>
+    
+    <div class="field">
+      <label>Priority</label>
+      <select id="task-priority">
+        <option value="low">Low</option>
+        <option value="medium" selected>Medium</option>
+        <option value="high">High</option>
+        <option value="urgent">Urgent</option>
+      </select>
     </div>
     <div class="row-2">
       <div class="field">

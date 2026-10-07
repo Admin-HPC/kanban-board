@@ -64,10 +64,19 @@
       sb.from("members").select("*").order("created_at"),
       sb.from("tasks").select("*").order("position"),
     ]);
+
     if (me) return toast("Couldn't load members: " + me.message);
     if (te) return toast("Couldn't load tasks: " + te.message);
+
     members = m || [];
     tasks = t || [];
+
+
+     console.log("TASKS FROM SUPABASE:", tasks);
+console.log(
+  "STORIES FROM SUPABASE:",
+  tasks.map((task) => task.story)
+);    
     render();
   }
 
@@ -80,6 +89,7 @@
   // ---------- who-am-i ----------
   function renderWhoamiOptions(selectEl) {
     selectEl.innerHTML = "";
+
     if (members.length === 0) {
       const opt = document.createElement("option");
       opt.textContent = "No members yet — add yourself below";
@@ -87,6 +97,7 @@
       selectEl.appendChild(opt);
       return;
     }
+
     members.forEach((m) => {
       const opt = document.createElement("option");
       opt.value = m.id;
@@ -97,19 +108,26 @@
 
   function showWhoamiModal() {
     renderWhoamiOptions($("#whoami-select"));
-    if (whoamiId && memberById(whoamiId)) $("#whoami-select").value = whoamiId;
+
+    if (whoamiId && memberById(whoamiId)) {
+      $("#whoami-select").value = whoamiId;
+    }
+
     $("#whoami-overlay").style.display = "flex";
   }
 
   $("#whoami-add").onclick = async () => {
     const name = $("#whoami-new-name").value.trim();
     if (!name) return;
+
     const { data, error } = await sb
       .from("members")
       .insert({ name, color: colorFor(name) })
       .select()
       .single();
+
     if (error) return toast("Couldn't add member: " + error.message);
+
     members.push(data);
     $("#whoami-new-name").value = "";
     renderWhoamiOptions($("#whoami-select"));
@@ -118,7 +136,9 @@
 
   $("#whoami-continue").onclick = () => {
     const sel = $("#whoami-select");
+
     if (!sel.value) return toast("Pick or add your name first");
+
     whoamiId = sel.value;
     localStorage.setItem("kanban_whoami_id", whoamiId);
     $("#whoami-overlay").style.display = "none";
@@ -132,17 +152,23 @@
     renderMemberManageList();
     $("#members-overlay").style.display = "flex";
   };
+
   $("#members-close").onclick = () => ($("#members-overlay").style.display = "none");
+
   $("#members-add").onclick = async () => {
     const input = $("#new-member-name");
     const name = input.value.trim();
+
     if (!name) return;
+
     const { data, error } = await sb
       .from("members")
       .insert({ name, color: colorFor(name) })
       .select()
       .single();
+
     if (error) return toast("Couldn't add member: " + error.message);
+
     members.push(data);
     input.value = "";
     renderMemberManageList();
@@ -152,13 +178,16 @@
   function renderMemberManageList() {
     const list = $("#member-manage-list");
     list.innerHTML = "";
+
     if (members.length === 0) {
       list.innerHTML = '<div class="empty-hint">No team members yet.</div>';
       return;
     }
+
     members.forEach((m) => {
       const row = document.createElement("div");
       row.className = "member-row";
+
       row.innerHTML =
         '<span class="avatar" style="background:' +
         m.color +
@@ -167,17 +196,23 @@
         '</span><span>' +
         escapeHtml(m.name) +
         "</span>";
+
       const del = document.createElement("button");
       del.className = "btn ghost small";
       del.textContent = "Remove";
+
       del.onclick = async () => {
         if (!confirm('Remove "' + m.name + '"? Their tasks will become unassigned.')) return;
+
         const { error } = await sb.from("members").delete().eq("id", m.id);
+
         if (error) return toast("Couldn't remove: " + error.message);
+
         members = members.filter((x) => x.id !== m.id);
         renderMemberManageList();
         render();
       };
+
       row.appendChild(del);
       list.appendChild(row);
     });
@@ -186,85 +221,361 @@
   // ---------- "my tasks" filter ----------
   $("#my-tasks-toggle").onclick = () => {
     if (!whoamiId) return showWhoamiModal();
+
     filterMine = !filterMine;
     $("#my-tasks-toggle").classList.toggle("active", filterMine);
     render();
   };
 
+  // ---------- board filters (category / priority / story / status) ----------
+  const boardFilters = { category: "", priority: "", story: "", status: "" };
+
+  function storyKey(s) {
+    return (s || "").replace(/\s+/g, " ").trim().toLowerCase();
+  }
+
+  function refreshStoryFilterOptions() {
+    const sel = $("#filter-story");
+    if (!sel) return;
+
+    const seen = {};
+    const list = [];
+
+    tasks.forEach((t) => {
+      const key = storyKey(t.story);
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      list.push({ key, label: t.story.replace(/\s+/g, " ").trim() });
+    });
+
+    list.sort((a, b) => a.label.localeCompare(b.label));
+
+    sel.innerHTML = '<option value="">All stories</option>';
+    list.forEach((s) => {
+      const opt = document.createElement("option");
+      opt.value = s.key;
+      opt.textContent = s.label;
+      sel.appendChild(opt);
+    });
+
+    if (!seen[boardFilters.story]) boardFilters.story = "";
+    sel.value = boardFilters.story;
+  }
+
+  function taskMatchesFilters(t) {
+    if (boardFilters.category && (t.category || "").toLowerCase() !== boardFilters.category.toLowerCase()) return false;
+    if (boardFilters.priority && (t.priority || "medium").toLowerCase() !== boardFilters.priority) return false;
+    if (boardFilters.story && storyKey(t.story) !== boardFilters.story) return false;
+    if (boardFilters.status && t.status !== boardFilters.status) return false;
+    return true;
+  }
+
+  [
+    ["category", "#filter-category"],
+    ["priority", "#filter-priority"],
+    ["story", "#filter-story"],
+    ["status", "#filter-status"],
+  ].forEach(([name, sel]) => {
+    $(sel).onchange = () => {
+      boardFilters[name] = $(sel).value;
+      render();
+    };
+  });
+
+  // ---------- story dropdown ----------
+  const STORY_NEW_VALUE = "__create_new_story__";
+
+  function getExistingStories() {
+    const seen = {};
+    const list = [];
+
+    tasks.forEach((t) => {
+      const s = (t.story || "").trim();
+
+      if (!s) return;
+
+      const key = s.toLowerCase();
+
+      if (seen[key]) return;
+
+      seen[key] = true;
+      list.push(s);
+    });
+
+    list.sort((a, b) => a.localeCompare(b));
+
+    return list;
+  }
+
+  function findExistingStory(name) {
+    const key = (name || "").trim().toLowerCase();
+
+    if (!key) return null;
+
+    return (
+      getExistingStories().find(
+        (s) => s.trim().toLowerCase() === key
+      ) || null
+    );
+  }
+
+  function toggleStoryNewInput() {
+    const storySelect = $("#task-story");
+    const newField = $("#task-story-new-field");
+    const newInput = $("#task-story-new");
+
+    if (!storySelect || !newField || !newInput) return;
+
+    const isNew = storySelect.value === STORY_NEW_VALUE;
+
+    newField.style.display = isNew ? "" : "none";
+
+    if (!isNew) {
+      newInput.value = "";
+    }
+
+    if (isNew) {
+      setTimeout(() => newInput.focus(), 30);
+    }
+  }
+
+  function populateStoryOptions(selected) {
+    const sel = $("#task-story");
+
+    if (!sel) return;
+
+    sel.innerHTML = "";
+
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "Select Story";
+    sel.appendChild(none);
+
+    getExistingStories().forEach((s) => {
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = s;
+      sel.appendChild(opt);
+    });
+
+    const create = document.createElement("option");
+    create.value = STORY_NEW_VALUE;
+    create.textContent = "+ Create New Story";
+    sel.appendChild(create);
+
+    const match = findExistingStory(selected);
+
+    if (match !== null) {
+      sel.value = match;
+    } else {
+      sel.value = "";
+    }
+
+    $("#task-story-new").value = "";
+    toggleStoryNewInput();
+  }
+
+  $("#task-story").onchange = toggleStoryNewInput;
+
   // ---------- task modal ----------
   function openTaskModal(status, taskId) {
     editingTaskId = taskId || null;
     editingStatus = status;
-    const task = taskId ? tasks.find((t) => t.id === taskId) : null;
+
+    const task = taskId
+      ? tasks.find((t) => t.id === taskId)
+      : null;
 
     $("#task-modal-title").textContent = task ? "Edit task" : "New task";
+
     $("#task-title").value = task ? task.title : "";
-    $("#task-desc").value = task ? task.description || "" : "";
-    $("#task-due").value = task && task.due_date ? task.due_date : "";
-    $("#task-delete").style.display = task ? "inline-block" : "none";
+
+    $("#task-desc").value = task
+      ? task.description || ""
+      : "";
+
+    $("#task-done-when").value = task
+      ? task.done_when || ""
+      : "";
+
+    $("#task-due").value =
+      task && task.due_date
+        ? task.due_date
+        : "";
+
+    $("#task-category").value =
+      task && task.category
+        ? task.category
+        : "Feature";
+
+    $("#task-priority").value =
+      task && task.priority
+        ? task.priority
+        : "medium";
+
+    $("#task-delete").style.display = task
+      ? "inline-block"
+      : "none";
+
+    // Populate Story dropdown and select the task's existing Story.
+    populateStoryOptions(task ? task.story : "");
 
     const assigneeSel = $("#task-assignee");
-    assigneeSel.innerHTML = '<option value="">Unassigned</option>';
+
+    assigneeSel.innerHTML =
+      '<option value="">Unassigned</option>';
+
     members.forEach((m) => {
       const opt = document.createElement("option");
       opt.value = m.id;
       opt.textContent = m.name;
       assigneeSel.appendChild(opt);
     });
-    assigneeSel.value = task && task.assignee_id ? task.assignee_id : "";
+
+    assigneeSel.value =
+      task && task.assignee_id
+        ? task.assignee_id
+        : "";
 
     setStatusTab(status);
+
     $("#task-overlay").style.display = "flex";
+
     setTimeout(() => $("#task-title").focus(), 30);
   }
 
   function setStatusTab(status) {
     editingStatus = status;
+
     document.querySelectorAll(".status-tab").forEach((el) => {
-      el.classList.toggle("active", el.dataset.status === status);
+      el.classList.toggle(
+        "active",
+        el.dataset.status === status
+      );
     });
   }
+
   document.querySelectorAll(".status-tab").forEach((el) => {
     el.onclick = () => setStatusTab(el.dataset.status);
   });
 
-  $("#task-cancel").onclick = () => ($("#task-overlay").style.display = "none");
+  $("#task-cancel").onclick = () =>
+    ($("#task-overlay").style.display = "none");
 
+  // ---------- save task ----------
   $("#task-save").onclick = async () => {
     const title = $("#task-title").value.trim();
-    if (!title) return toast("Give the task a title");
+
+    if (!title) {
+      return toast("Give the task a title");
+    }
+
+    // Story
+    let story = $("#task-story").value;
+
+    if (story === STORY_NEW_VALUE) {
+      const typed = $("#task-story-new").value.trim();
+
+      if (!typed) {
+        return toast("Enter the new story");
+      }
+
+      // Reuse existing Story if it matches ignoring
+      // case and surrounding spaces.
+      story = findExistingStory(typed) || typed;
+    }
+
     const payload = {
       title,
       description: $("#task-desc").value.trim(),
+
+      // Story
+      story,
+
+      // Category
+      category: $("#task-category").value || "",
+
+      // Done When
+      done_when: $("#task-done-when").value.trim(),
+
+      // Priority
+      priority: $("#task-priority").value || "medium",
+
       status: editingStatus,
-      assignee_id: $("#task-assignee").value || null,
-      due_date: $("#task-due").value || null,
+
+      assignee_id:
+        $("#task-assignee").value || null,
+
+      due_date:
+        $("#task-due").value || null,
+
       updated_at: new Date().toISOString(),
     };
+
     if (editingTaskId) {
-      const { error } = await sb.from("tasks").update(payload).eq("id", editingTaskId);
-      if (error) return toast("Couldn't save: " + error.message);
+      const { error } = await sb
+        .from("tasks")
+        .update(payload)
+        .eq("id", editingTaskId);
+
+      if (error) {
+        return toast(
+          "Couldn't save: " + error.message
+        );
+      }
     } else {
       payload.position = nextPosition(editingStatus);
-      payload.created_by = whoamiId ? memberById(whoamiId).name : "someone";
-      const { error } = await sb.from("tasks").insert(payload);
-      if (error) return toast("Couldn't create task: " + error.message);
+
+      payload.created_by = whoamiId
+        ? memberById(whoamiId).name
+        : "someone";
+
+      const { error } = await sb
+        .from("tasks")
+        .insert(payload);
+
+      if (error) {
+        return toast(
+          "Couldn't create task: " + error.message
+        );
+      }
     }
+
     $("#task-overlay").style.display = "none";
   };
 
+  // ---------- delete task ----------
   $("#task-delete").onclick = async () => {
     if (!editingTaskId) return;
+
     if (!confirm("Delete this task?")) return;
-    const { error } = await sb.from("tasks").delete().eq("id", editingTaskId);
-    if (error) return toast("Couldn't delete: " + error.message);
+
+    const { error } = await sb
+      .from("tasks")
+      .delete()
+      .eq("id", editingTaskId);
+
+    if (error) {
+      return toast(
+        "Couldn't delete: " + error.message
+      );
+    }
+
     $("#task-overlay").style.display = "none";
   };
 
   function nextPosition(status) {
-    const inCol = tasks.filter((t) => t.status === status);
+    const inCol = tasks.filter(
+      (t) => t.status === status
+    );
+
     if (inCol.length === 0) return 0;
-    return Math.max(...inCol.map((t) => t.position)) + 1;
+
+    return (
+      Math.max(
+        ...inCol.map((t) => t.position)
+      ) + 1
+    );
   }
 
   // ---------- rendering ----------
@@ -275,20 +586,36 @@
   }
 
   function render() {
-    $("#whoami-chip").innerHTML = whoamiId && memberById(whoamiId)
-      ? '<span class="avatar" style="background:' + memberById(whoamiId).color + '">' + initials(memberById(whoamiId).name) + "</span>" + escapeHtml(memberById(whoamiId).name)
-      : "Who are you?";
+    refreshStoryFilterOptions();
+
+    $("#whoami-chip").innerHTML =
+      whoamiId && memberById(whoamiId)
+        ? '<span class="avatar" style="background:' +
+          memberById(whoamiId).color +
+          '">' +
+          initials(memberById(whoamiId).name) +
+          "</span>" +
+          escapeHtml(memberById(whoamiId).name)
+        : "Who are you?";
 
     if (!whoamiId || !memberById(whoamiId)) {
       showWhoamiModal();
     }
 
     boardEl.innerHTML = "";
+
     STATUSES.forEach((s) => {
       let colTasks = tasks
         .filter((t) => t.status === s.key)
         .sort((a, b) => a.position - b.position);
-      if (filterMine && whoamiId) colTasks = colTasks.filter((t) => t.assignee_id === whoamiId);
+
+      if (filterMine && whoamiId) {
+        colTasks = colTasks.filter(
+          (t) => t.assignee_id === whoamiId
+        );
+      }
+
+      colTasks = colTasks.filter(taskMatchesFilters);
 
       const col = document.createElement("div");
       col.className = "column";
@@ -296,6 +623,7 @@
 
       const head = document.createElement("div");
       head.className = "column-head";
+
       head.innerHTML =
         '<div class="column-title"><span class="dot ' +
         s.key +
@@ -304,19 +632,31 @@
         '</div><span class="count">' +
         colTasks.length +
         "</span>";
+
       col.appendChild(head);
 
       const list = document.createElement("div");
       list.className = "card-list";
+
       list.addEventListener("dragover", (e) => {
         e.preventDefault();
         col.classList.add("dragover");
       });
-      list.addEventListener("dragleave", () => col.classList.remove("dragover"));
+
+      list.addEventListener("dragleave", () =>
+        col.classList.remove("dragover")
+      );
+
       list.addEventListener("drop", (e) => {
         e.preventDefault();
+
         col.classList.remove("dragover");
-        handleDrop(s.key, list, e.clientY);
+
+        handleDrop(
+          s.key,
+          list,
+          e.clientY
+        );
       });
 
       if (colTasks.length === 0) {
@@ -326,13 +666,18 @@
         list.appendChild(hint);
       }
 
-      colTasks.forEach((t) => list.appendChild(renderCard(t)));
+      colTasks.forEach((t) =>
+        list.appendChild(renderCard(t))
+      );
+
       col.appendChild(list);
 
       const addBtn = document.createElement("button");
       addBtn.className = "add-card-btn";
       addBtn.textContent = "+ Add task";
-      addBtn.onclick = () => openTaskModal(s.key, null);
+      addBtn.onclick = () =>
+        openTaskModal(s.key, null);
+
       col.appendChild(addBtn);
 
       boardEl.appendChild(col);
@@ -341,6 +686,7 @@
 
   function renderCard(t) {
     const card = document.createElement("div");
+
     card.className = "card";
     card.draggable = true;
     card.dataset.id = t.id;
@@ -349,18 +695,37 @@
       dragTaskId = t.id;
       card.classList.add("dragging");
     });
-    card.addEventListener("dragend", () => card.classList.remove("dragging"));
-    card.addEventListener("click", () => openTaskModal(t.status, t.id));
 
-    const assignee = t.assignee_id ? memberById(t.assignee_id) : null;
-    const today = new Date().toISOString().slice(0, 10);
-    const overdue = t.due_date && t.due_date < today && t.status !== "done";
+    card.addEventListener("dragend", () =>
+      card.classList.remove("dragging")
+    );
+
+    card.addEventListener("click", () =>
+      openTaskModal(t.status, t.id)
+    );
+
+    const assignee = t.assignee_id
+      ? memberById(t.assignee_id)
+      : null;
+
+    const today = new Date()
+      .toISOString()
+      .slice(0, 10);
+
+    const overdue =
+      t.due_date &&
+      t.due_date < today &&
+      t.status !== "done";
 
     card.innerHTML =
       '<p class="card-title">' +
       escapeHtml(t.title) +
       "</p>" +
-      (t.description ? '<p class="card-desc">' + escapeHtml(t.description) + "</p>" : "") +
+      (t.description
+        ? '<p class="card-desc">' +
+          escapeHtml(t.description) +
+          "</p>"
+        : "") +
       '<div class="card-meta">' +
       (assignee
         ? '<span class="card-assignee"><span class="avatar" style="background:' +
@@ -371,45 +736,90 @@
           escapeHtml(assignee.name) +
           "</span>"
         : '<span class="card-assignee">Unassigned</span>') +
-      (t.due_date ? '<span class="due ' + (overdue ? "overdue" : "") + '">' + t.due_date + "</span>" : "<span></span>") +
+      (t.due_date
+        ? '<span class="due ' +
+          (overdue ? "overdue" : "") +
+          '">' +
+          t.due_date +
+          "</span>"
+        : "<span></span>") +
       "</div>";
+
     return card;
   }
 
   function handleDrop(status, listEl, clientY) {
     if (!dragTaskId) return;
-    const cards = Array.from(listEl.querySelectorAll(".card"));
+
+    const cards = Array.from(
+      listEl.querySelectorAll(".card")
+    );
+
     let insertBeforeId = null;
+
     for (const c of cards) {
       const rect = c.getBoundingClientRect();
-      if (clientY < rect.top + rect.height / 2) {
+
+      if (
+        clientY <
+        rect.top + rect.height / 2
+      ) {
         insertBeforeId = c.dataset.id;
         break;
       }
     }
+
     const colTasks = tasks
-      .filter((t) => t.status === status && t.id !== dragTaskId)
-      .sort((a, b) => a.position - b.position);
+      .filter(
+        (t) =>
+          t.status === status &&
+          t.id !== dragTaskId
+      )
+      .sort(
+        (a, b) => a.position - b.position
+      );
 
     let newPos;
+
     if (colTasks.length === 0) {
       newPos = 0;
     } else if (!insertBeforeId) {
-      newPos = colTasks[colTasks.length - 1].position + 1;
+      newPos =
+        colTasks[colTasks.length - 1]
+          .position + 1;
     } else {
-      const idx = colTasks.findIndex((t) => t.id === insertBeforeId);
-      const before = idx > 0 ? colTasks[idx - 1].position : colTasks[idx].position - 1;
-      const after = colTasks[idx].position;
+      const idx = colTasks.findIndex(
+        (t) => t.id === insertBeforeId
+      );
+
+      const before =
+        idx > 0
+          ? colTasks[idx - 1].position
+          : colTasks[idx].position - 1;
+
+      const after =
+        colTasks[idx].position;
+
       newPos = (before + after) / 2;
     }
 
     const id = dragTaskId;
     dragTaskId = null;
+
     sb.from("tasks")
-      .update({ status, position: newPos, updated_at: new Date().toISOString() })
+      .update({
+        status,
+        position: newPos,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", id)
       .then(({ error }) => {
-        if (error) toast("Couldn't move task: " + error.message);
+        if (error) {
+          toast(
+            "Couldn't move task: " +
+              error.message
+          );
+        }
       });
   }
 
