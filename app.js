@@ -495,8 +495,8 @@ console.log(
       // Category
       category: $("#task-category").value || "",
 
-      // Done When
-      done_when: $("#task-done-when").value.trim(),
+      // Done When — send null when no date is selected
+      done_when: $("#task-done-when").value || null,
 
       // Priority
       priority: $("#task-priority").value || "medium",
