@@ -127,7 +127,7 @@
       </div>
       <div class="field">
         <label>Done when</label>
-        <input type="text" id="story-done-when" placeholder="e.g. Checkout flow passes QA" />
+        <textarea id="story-done-when" placeholder="e.g. Checkout flow passes QA"></textarea>
       </div>
       <div class="field story-tasks-section">
         <div class="task-section-head">
@@ -156,8 +156,12 @@
       <input type="text" id="task-name" placeholder="e.g. Design the hero section" />
     </div>
     <div class="field">
-      <label>Assignee</label>
-      <select id="task-assignee"></select>
+      <label id="task-assignees-label">Assignees</label>
+      <div class="assignee-picker" id="task-assignees">
+        <div class="assignee-picker-box" id="task-assignees-box" tabindex="0" role="button"
+             aria-haspopup="listbox" aria-expanded="false" aria-labelledby="task-assignees-label"></div>
+        <div class="assignee-picker-menu" id="task-assignees-menu" role="listbox" aria-multiselectable="true" hidden></div>
+      </div>
     </div>
     <div class="field">
       <label>Task Category</label>

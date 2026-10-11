@@ -13,6 +13,8 @@ Claude, GitHub, or any other account — they just need the URL you give them.
 1. Go to https://supabase.com, sign up free, click **New project**.
 2. Once it's created, open the **SQL Editor** (left sidebar), paste in the
    entire contents of `supabase-schema.sql` from this folder, and click **Run**.
+   Then do the same with `supabase-migration-task-assignees.sql` (lets a task
+   have several assignees; it copies over any existing assignments).
 3. Go to **Project Settings -> API**. Copy:
    - **Project URL**
    - **anon public** key

@@ -150,6 +150,11 @@ body {
 .tag.dim { background: var(--bg); color: var(--text-dim); }
 .card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .card-assignee { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-dim); font-weight: 600; }
+/* several assignees: overlapping avatars, "+N" for the rest */
+.avatar-stack { display: inline-flex; align-items: center; }
+.avatar-stack .avatar { box-shadow: 0 0 0 2px var(--panel); }
+.avatar-stack .avatar + .avatar { margin-left: -6px; }
+.avatar.more { background: var(--text-dim); font-size: 9.5px; }
 .due { font-size: 11px; padding: 2px 7px; border-radius: 6px; background: var(--bg); color: var(--text-dim); font-weight: 600; }
 .due.overdue { background: #fdeceb; color: var(--danger); }
 
@@ -200,6 +205,50 @@ body {
 }
 .field textarea { resize: vertical; min-height: 60px; }
 .field input:focus, .field textarea:focus, .field select:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+/* task assignees multi-select (looks like the other form fields) */
+.assignee-picker-box {
+  position: relative;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+  min-height: 38px;
+  padding: 5px 28px 5px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 13.5px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+.assignee-picker-box::after {
+  content: ""; position: absolute; right: 12px; top: 50%; margin-top: -3px;
+  border: 4px solid transparent; border-top: 5px solid var(--text-dim); border-bottom: 0;
+}
+.assignee-picker-box:focus, .assignee-picker.open .assignee-picker-box { outline: 2px solid var(--accent); outline-offset: 0; }
+.assignee-placeholder { padding-left: 4px; color: var(--text-dim); }
+.assignee-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px; border-radius: 999px;
+  background: var(--panel); border: 1px solid var(--border);
+  font-size: 12px; font-weight: 600; cursor: default;
+}
+.assignee-chip .avatar { width: 18px; height: 18px; font-size: 9px; }
+.assignee-chip-remove {
+  border: none; background: transparent; color: var(--text-dim); cursor: pointer;
+  width: 18px; height: 18px; border-radius: 50%; font-size: 14px; line-height: 1; padding: 0;
+}
+.assignee-chip-remove:hover { background: var(--bg); color: var(--danger); }
+.assignee-picker-menu {
+  margin-top: 4px; padding: 4px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
+  max-height: 200px; overflow-y: auto; overscroll-behavior: contain;
+}
+.assignee-picker-menu .empty-hint { padding: 10px 8px; }
+.field .assignee-option {
+  display: flex; align-items: center; gap: 8px; margin: 0;
+  padding: 6px 8px; border-radius: 6px; cursor: pointer;
+  font-size: 13px; font-weight: 500; color: var(--text); text-transform: none; letter-spacing: 0;
+}
+.field .assignee-option:hover { background: var(--bg); }
+.assignee-option input { margin: 0; accent-color: var(--accent); }
 .row-2 { display: flex; gap: 10px; }
 .row-2 > div { flex: 1; }
 .modal-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; gap: 10px; }
@@ -249,21 +298,85 @@ body {
 .story-modal .status-tab { padding: 5px; }
 .story-modal .row-2 > div { min-width: 0; }
 .story-modal .task-section-head { margin-bottom: 6px; }
-.story-modal .story-task-list { max-height: 180px; }
+/* the popup body scrolls already: let the task list grow instead of nesting a scroller */
+.story-modal .story-task-list { max-height: none; overflow: visible; gap: 10px; }
 .story-modal .story-task-list .empty-hint { padding: 10px 8px; }
 .story-modal .story-tasks-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
 .story-modal .story-tasks-section .task-section-head label { font-size: 12.5px; color: var(--text); }
+
+/* ---------- Task card (story popup) ---------- */
 .story-modal .story-task-row {
-  background: var(--panel); border-left: 3px solid var(--todo);
-  padding: 9px 10px 9px 12px; gap: 10px;
+  --task-navy: #1f2a44;
+  display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+  padding: 12px 14px 12px 15px;
+  background: var(--panel);
+  border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(20,20,40,.04);
 }
-.story-modal .story-task-row[data-status="in_progress"] { border-left-color: var(--progress); }
-.story-modal .story-task-row[data-status="done"] { border-left-color: var(--done); }
-.story-modal .story-task-name { font-size: 13.5px; font-weight: 700; margin-bottom: 5px; }
-.story-modal .story-task-meta { gap: 6px 8px; }
-.story-modal .story-task-meta-item { padding-left: 8px; border-left: 1px solid var(--border); }
-.story-modal .story-task-meta .card-assignee { gap: 5px; }
-.story-modal .story-task-meta .avatar { width: 18px; height: 18px; font-size: 9px; }
+.story-modal .story-task-head { display: flex; align-items: flex-start; gap: 10px; }
+.story-modal .story-task-name {
+  flex: 1; min-width: 0; margin: 0;
+  font-size: 14px; font-weight: 700; line-height: 1.4; color: var(--task-navy); overflow-wrap: anywhere;
+}
+.story-modal .story-task-actions { display: flex; gap: 2px; flex-shrink: 0; margin: -4px -6px 0 0; }
+.story-modal .story-task-actions .icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0; border-radius: 7px; color: var(--accent);
+}
+.story-modal .story-task-actions .icon-btn.danger-text { color: var(--danger); }
+.story-modal .story-task-actions .icon-btn:hover { filter: none; background: var(--accent-dim); }
+.story-modal .story-task-actions .icon-btn.danger-text:hover { background: #fdeceb; }
+.story-modal .story-task-actions .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.story-modal .story-task-info { display: flex; flex-direction: column; gap: 10px; }
+
+/* status / type / priority: one row of compact pills sized to their text */
+.story-modal .story-task-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; }
+.story-modal .story-task-badges > span {
+  display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; line-height: 1.2; white-space: nowrap;
+}
+.story-modal .story-task-badge { background: #f1f3f7; color: #4c5063; }
+.story-modal .story-task-badge.priority-medium { background: var(--accent-dim); color: var(--accent); }
+.story-modal .story-task-badge.priority-high,
+.story-modal .story-task-badge.priority-urgent { background: #fdeceb; color: var(--danger); }
+
+.story-modal .story-task-desc {
+  margin: 0; font-size: 12.5px; line-height: 1.55; color: #4a5168;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* details: assignees | due date | done when */
+.story-modal .story-task-details {
+  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, .9fr) minmax(0, 1.25fr);
+  padding-top: 10px; border-top: 1px solid var(--border);
+}
+.story-modal .story-task-detail { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 0 12px; }
+.story-modal .story-task-detail:first-child { padding-left: 0; }
+.story-modal .story-task-detail:last-child { padding-right: 0; }
+.story-modal .story-task-detail + .story-task-detail { border-left: 1px solid var(--border); }
+.story-modal .detail-label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-dim);
+}
+.story-modal .detail-count {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 16px; padding: 0 5px;
+  border-radius: 999px; background: var(--accent-dim); color: var(--accent); font-size: 10px; letter-spacing: 0;
+}
+.story-modal .assignee-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.story-modal .assignee-person {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+  font-size: 12.5px; font-weight: 600; color: var(--task-navy);
+}
+.story-modal .assignee-person .avatar { width: 22px; height: 22px; font-size: 9.5px; }
+.story-modal .assignee-name { min-width: 0; overflow-wrap: anywhere; }
+.story-modal .detail-value { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--task-navy); }
+.story-modal .detail-value svg { flex-shrink: 0; color: var(--accent); }
+.story-modal .detail-due.overdue .detail-value,
+.story-modal .detail-due.overdue .detail-value svg,
+.story-modal .detail-overdue { color: var(--danger); }
+.story-modal .detail-text { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--task-navy); white-space: pre-wrap; overflow-wrap: anywhere; }
+.story-modal .detail-note { font-size: 11px; color: var(--text-dim); }
+.story-modal .detail-empty { font-size: 12.5px; color: var(--text-dim); }
 .story-modal .modal-actions {
   margin-top: 0;
   padding: 12px 20px;
@@ -322,11 +435,14 @@ body:has(#story-overlay[style*="flex"]) { overflow: hidden; }
   .topbar { padding: 12px 14px; }
   .overlay { padding: 12px; }
   .modal { padding: 18px; }
-  .story-task-row { flex-wrap: wrap; }
-  .story-task-actions { width: 100%; justify-content: flex-end; }
   .modal.story-modal { max-height: calc(100dvh - 24px); }
   .story-modal-head { padding: 14px 16px 10px; }
   .story-modal-body { padding: 12px 16px 2px; }
   .story-modal .modal-actions { padding: 10px 16px; }
   .story-modal .row-2 { flex-direction: column; gap: 0; }
+  .story-modal .story-task-row { padding: 11px 12px 12px 13px; }
+  /* details stack: assignees, then due date, then done when */
+  .story-modal .story-task-details { grid-template-columns: minmax(0, 1fr); }
+  .story-modal .story-task-detail { padding: 0; }
+  .story-modal .story-task-detail + .story-task-detail { border-left: 0; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
 }

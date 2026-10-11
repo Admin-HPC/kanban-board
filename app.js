@@ -23,6 +23,12 @@
   let members = [];
   let stories = [];
   let tasks = []; // only tasks that belong to a story (story_id set)
+  // false until supabase-migration-task-assignees.sql has been run; tasks then
+  // fall back to the single tasks.assignee_id column.
+  let multiAssigneeReady = true;
+  // Set when task_assignees failed to load for any other reason; assignee writes
+  // are blocked until a load succeeds.
+  let assigneeLoadError = null;
   let whoamiId = localStorage.getItem("kanban_whoami_id") || null;
   let filterMine = false;
   let editingStoryId = null;
@@ -46,6 +52,15 @@
     let h = 0;
     for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
     return PALETTE[h % PALETTE.length];
+  }
+
+  // members.color is written by clients, so only #rgb / #rgba / #rrggbb /
+  // #rrggbbaa is ever put into a style attribute; anything else gets the
+  // name-derived palette color.
+  function safeColor(m) {
+    const c = m && m.color;
+    if (typeof c === "string" && /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(c)) return c;
+    return colorFor((m && m.name) || "");
   }
 
   function initials(name) {
@@ -80,6 +95,69 @@
       .sort((a, b) => a.position - b.position);
   }
 
+  // Assigned member ids of a task (empty = unassigned): its task_assignees rows,
+  // with the legacy single assignee_id always included and listed first (it is
+  // what older clients show and edit, so it must stay the "first" assignee).
+  function taskAssigneeIds(t) {
+    const ids = (t.assignee_ids || []).filter((id) => id !== t.assignee_id);
+    return t.assignee_id ? [t.assignee_id].concat(ids) : ids;
+  }
+
+  // Only these mean "task_assignees doesn't exist yet" (migration not run);
+  // anything else (network, permissions, ...) is a real error.
+  function isMissingTableError(error) {
+    return !!error && (error.code === "PGRST205" || error.code === "42P01");
+  }
+
+  // Loads ALL rows of a table. PostgREST caps each response (1000 rows by
+  // default), so page with a keyset on the primary key (`keys`, uuid columns)
+  // until an empty page; unlike offsets this can't skip rows when others change
+  // between pages. Any failed page fails the whole load: a partial list is never
+  // returned.
+  const PAGE_SIZE = 1000;
+  async function loadAllRows(table, columns, keys) {
+    const rows = [];
+    const seen = new Set();
+    let last = null;
+
+    for (;;) {
+      let query = sb.from(table).select(columns);
+      keys.forEach((k) => (query = query.order(k)));
+      query = query.limit(PAGE_SIZE);
+
+      if (last) {
+        // (k1 > v1) or (k1 = v1 and k2 > v2)
+        const [k1, k2] = keys;
+        query = query.or(
+          k2
+            ? k1 + ".gt." + last[k1] + ",and(" + k1 + ".eq." + last[k1] + "," + k2 + ".gt." + last[k2] + ")"
+            : k1 + ".gt." + last[k1]
+        );
+      }
+
+      const { data, error } = await query;
+
+      if (error) return { data: null, error };
+      if (!data || data.length === 0) return { data: rows, error: null };
+
+      for (const r of data) {
+        const key = keys.map((k) => r[k]).join("|");
+        if (seen.has(key)) return { data: null, error: { message: table + " paging did not advance" } };
+        seen.add(key);
+      }
+
+      rows.push(...data);
+      last = data[data.length - 1];
+    }
+  }
+
+  // Sorts rows by `col` (then id) in place: the order the server used to apply.
+  function sortRows(rows, col) {
+    return rows.sort((a, b) =>
+      a[col] < b[col] ? -1 : a[col] > b[col] ? 1 : String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0
+    );
+  }
+
   function currentUserName() {
     return whoamiId && memberById(whoamiId) ? memberById(whoamiId).name : "someone";
   }
@@ -90,20 +168,35 @@
 
   // ---------- data loading ----------
   async function loadAll() {
-    const [mRes, sRes, tRes] = await Promise.all([
-      sb.from("members").select("*").order("created_at"),
-      sb.from("stories").select("*").order("position"),
-      sb.from("tasks").select("*").order("position"),
+    const [mRes, sRes, tRes, aRes] = await Promise.all([
+      loadAllRows("members", "*", ["id"]),
+      loadAllRows("stories", "*", ["id"]),
+      loadAllRows("tasks", "*", ["id"]),
+      loadAllRows("task_assignees", "task_id, member_id, created_at", ["task_id", "member_id"]),
     ]);
 
     if (mRes.error) return toast("Couldn't load members: " + mRes.error.message);
     if (sRes.error)
       return toast("Couldn't load stories: " + sRes.error.message + " (has the stories SQL migration been applied?)");
     if (tRes.error) return toast("Couldn't load tasks: " + tRes.error.message);
+    if (aRes.error && !isMissingTableError(aRes.error)) {
+      // Keep the last complete data on screen rather than showing partial assignees.
+      assigneeLoadError = aRes.error;
+      return toast("Couldn't load task assignees: " + aRes.error.message + ". Assignee changes are paused until it loads.");
+    }
 
-    members = mRes.data || [];
-    stories = sRes.data || [];
-    tasks = (tRes.data || []).filter((t) => t.story_id);
+    members = sortRows(mRes.data || [], "created_at");
+    stories = sortRows(sRes.data || [], "position");
+    tasks = sortRows((tRes.data || []).filter((t) => t.story_id), "position");
+
+    // A missing task_assignees table just means the migration hasn't run yet.
+    assigneeLoadError = null;
+    multiAssigneeReady = !aRes.error;
+    const assigned = {};
+    (aRes.data || [])
+      .sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.member_id < b.member_id ? -1 : 1))
+      .forEach((r) => (assigned[r.task_id] = assigned[r.task_id] || []).push(r.member_id));
+    tasks.forEach((t) => (t.assignee_ids = assigned[t.id] || []));
 
     render();
 
@@ -118,6 +211,12 @@
     .on("postgres_changes", { event: "*", schema: "public", table: "stories" }, loadAll)
     .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, loadAll)
     .on("postgres_changes", { event: "*", schema: "public", table: "members" }, loadAll)
+    .subscribe();
+
+  // Separate channel so a not-yet-created task_assignees table can't break the main sync.
+  sb
+    .channel("kanban-sync-assignees")
+    .on("postgres_changes", { event: "*", schema: "public", table: "task_assignees" }, loadAll)
     .subscribe();
 
   // ---------- who-am-i ----------
@@ -218,12 +317,13 @@
       return;
     }
 
-    // Count every loaded task once, under its assignee (unassigned tasks are skipped).
+    // Count every loaded task once under each of its assignees (unassigned tasks are skipped).
     const stats = {};
     tasks.forEach((t) => {
-      if (!t.assignee_id) return;
-      const s = stats[t.assignee_id] || (stats[t.assignee_id] = { todo: 0, in_progress: 0, done: 0 });
-      if (t.status in s) s[t.status]++;
+      taskAssigneeIds(t).forEach((id) => {
+        const s = stats[id] || (stats[id] = { todo: 0, in_progress: 0, done: 0 });
+        if (t.status in s) s[t.status]++;
+      });
     });
 
     members.forEach((m) => {
@@ -236,9 +336,9 @@
 
       row.innerHTML =
         '<span class="avatar member-avatar" style="background:' +
-        m.color +
+        safeColor(m) +
         '">' +
-        initials(m.name) +
+        escapeHtml(initials(m.name)) +
         '</span><div class="member-info"><div class="member-top"><span class="member-name">' +
         escapeHtml(m.name) +
         '</span><span class="member-pct">' +
@@ -329,7 +429,7 @@
   // Task-level filters (task category / "My tasks only").
   function taskMatchesFilters(t) {
     if (boardFilters.category && (t.category || "").toLowerCase() !== boardFilters.category.toLowerCase()) return false;
-    if (filterMine && whoamiId && t.assignee_id !== whoamiId) return false;
+    if (filterMine && whoamiId && !taskAssigneeIds(t).includes(whoamiId)) return false;
     return true;
   }
 
@@ -347,17 +447,207 @@
   });
 
   // ---------- shared helpers for modals ----------
-  function fillAssigneeOptions(selectEl, selectedId) {
-    selectEl.innerHTML = '<option value="">Unassigned</option>';
+  // escapeHtml leaves quotes alone, so values placed inside attributes use this.
+  function escapeAttr(s) {
+    return escapeHtml(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function avatarHtml(m) {
+    return '<span class="avatar" style="background:' + safeColor(m) + '">' + escapeHtml(initials(m.name)) + "</span>";
+  }
+
+  // Assignees on a card: one = avatar + name (as before); several = stacked
+  // avatars, at most MAX_AVATARS bubbles with a "+N" for the rest.
+  const MAX_AVATARS = 4;
+  function assigneesHtml(ids, unassignedHtml) {
+    const list = ids.map(memberById).filter(Boolean);
+
+    if (list.length === 0) return unassignedHtml;
+
+    if (list.length === 1) {
+      return '<span class="card-assignee">' + avatarHtml(list[0]) + escapeHtml(list[0].name) + "</span>";
+    }
+
+    const names = escapeAttr(list.map((m) => m.name).join(", "));
+    const shown = list.length > MAX_AVATARS ? list.slice(0, MAX_AVATARS - 1) : list;
+    const extra = list.length - shown.length;
+
+    return (
+      '<span class="card-assignee" title="' + names + '" aria-label="Assigned to ' + names + '">' +
+      '<span class="avatar-stack">' +
+      shown.map(avatarHtml).join("") +
+      (extra ? '<span class="avatar more">+' + extra + "</span>" : "") +
+      "</span></span>"
+    );
+  }
+
+  // ---------- task cards inside the story popup ----------
+  const ICON_CALENDAR =
+    '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+  const ICON_EDIT =
+    '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M10.5 2.5l3 3L6 13H3v-3z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+  const ICON_DELETE =
+    '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M2.5 4.5h11M6.5 4.5V3h3v1.5M4 4.5l.7 8.5h6.6l.7-8.5M6.8 7v4M9.2 7v4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  // "2026-12-01" -> "Dec 1, 2026" (in the viewer's locale); other values as-is.
+  function formatDay(day) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day || "");
+    if (!m) return day;
+    return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+
+  function taskDetailHtml(cls, label, bodyHtml) {
+    return '<div class="story-task-detail ' + cls + '"><span class="detail-label">' + label + "</span>" + bodyHtml + "</div>";
+  }
+
+  // Every assignee (avatar + full name), nobody hidden, with the count in the label.
+  function taskAssigneesDetailHtml(ids) {
+    const people = ids.map(memberById).filter(Boolean);
+
+    return taskDetailHtml(
+      "detail-assignees",
+      'Assignees<span class="detail-count" aria-label="' + people.length + (people.length === 1 ? ' assignee">' : ' assignees">') + people.length + "</span>",
+      people.length
+        ? '<ul class="assignee-list">' +
+            people
+              .map((m) => '<li class="assignee-person" title="' + escapeAttr(m.name) + '">' + avatarHtml(m) + '<span class="assignee-name">' + escapeHtml(m.name) + "</span></li>")
+              .join("") +
+            "</ul>"
+        : '<span class="detail-empty story-task-unassigned">Unassigned</span>'
+    );
+  }
+
+  // ---------- task assignee multi-select ----------
+  let pickerIds = []; // member ids selected in the task popup, in order
+  let pickerFromIds = []; // the task's task_assignees rows when the popup opened
+
+  function renderAssigneePicker() {
+    renderAssigneeChips();
+    renderAssigneeMenu();
+  }
+
+  function renderAssigneeChips() {
+    const box = $("#task-assignees-box");
+    const chosen = pickerIds.map(memberById).filter(Boolean);
+
+    box.innerHTML = chosen.length
+      ? chosen
+          .map(
+            (m) =>
+              '<span class="assignee-chip">' +
+              avatarHtml(m) +
+              escapeHtml(m.name) +
+              '<button type="button" class="assignee-chip-remove" data-id="' +
+              escapeAttr(m.id) +
+              '" aria-label="Remove ' +
+              escapeAttr(m.name) +
+              '">&times;</button></span>'
+          )
+          .join("")
+      : '<span class="assignee-placeholder">Unassigned</span>';
+  }
+
+  function renderAssigneeMenu() {
+    const menu = $("#task-assignees-menu");
+    menu.innerHTML = "";
+
+    if (members.length === 0) {
+      menu.innerHTML = '<div class="empty-hint">No team members yet.</div>';
+      return;
+    }
 
     members.forEach((m) => {
-      const opt = document.createElement("option");
-      opt.value = m.id;
-      opt.textContent = m.name;
-      selectEl.appendChild(opt);
-    });
+      const opt = document.createElement("label");
+      opt.className = "assignee-option";
+      opt.innerHTML = '<input type="checkbox" />' + avatarHtml(m) + escapeHtml(m.name);
 
-    selectEl.value = selectedId || "";
+      const cb = opt.querySelector("input");
+      cb.checked = pickerIds.includes(m.id);
+      cb.onchange = () => {
+        pickerIds = cb.checked ? pickerIds.concat(m.id) : pickerIds.filter((id) => id !== m.id);
+        renderAssigneeChips();
+      };
+
+      menu.appendChild(opt);
+    });
+  }
+
+  function setAssigneeMenuOpen(open) {
+    $("#task-assignees-menu").hidden = !open;
+    $("#task-assignees").classList.toggle("open", open);
+    $("#task-assignees-box").setAttribute("aria-expanded", String(open));
+  }
+
+  $("#task-assignees-box").onclick = (e) => {
+    const remove = e.target.closest(".assignee-chip-remove");
+
+    if (remove) {
+      pickerIds = pickerIds.filter((id) => id !== remove.dataset.id);
+      renderAssigneePicker();
+      return;
+    }
+
+    setAssigneeMenuOpen($("#task-assignees-menu").hidden);
+  };
+
+  $("#task-assignees-box").onkeydown = (e) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setAssigneeMenuOpen($("#task-assignees-menu").hidden);
+    } else if (e.key === "Escape") {
+      setAssigneeMenuOpen(false);
+    }
+  };
+
+  document.addEventListener("click", (e) => {
+    // (a removed chip is already detached from the page by the time this runs)
+    if (!$("#task-assignees-menu").hidden && e.target.isConnected && !$("#task-assignees").contains(e.target))
+      setAssigneeMenuOpen(false);
+  });
+
+  // Applies only what this edit changed: `ids` is the wanted list, `fromIds` the
+  // task's task_assignees rows when the popup opened. Members nobody touched here
+  // (e.g. added meanwhile in another tab) are left alone. Adds go first, so a
+  // failure never leaves a task with fewer assignees.
+  async function syncTaskAssignees(taskId, ids, fromIds) {
+    if (!multiAssigneeReady) return null;
+
+    // only members the user could see and pick are ever added
+    const added = ids.filter((id) => !fromIds.includes(id) && memberById(id));
+    const removed = fromIds.filter((id) => !ids.includes(id));
+
+    if (added.length) {
+      const { error } = await sb
+        .from("task_assignees")
+        .upsert(
+          added.map((id) => ({ task_id: taskId, member_id: id })),
+          { onConflict: "task_id,member_id", ignoreDuplicates: true }
+        );
+
+      if (error) return error;
+    }
+
+    if (removed.length) {
+      const { error } = await sb.from("task_assignees").delete().eq("task_id", taskId).in("member_id", removed);
+      if (error) return error;
+    }
+
+    return null;
+  }
+
+  // Assignee writes need a complete, freshly loaded list. Retries the load once.
+  async function assigneesLoadedOrWarn() {
+    if (assigneeLoadError) await loadAll();
+    if (!assigneeLoadError) return true;
+
+    toast("Can't save assignees: they couldn't be loaded (" + assigneeLoadError.message + "). Check your connection and try again.");
+    return false;
+  }
+
+  function warnIfSingleAssigneeOnly(ids) {
+    if (!multiAssigneeReady && ids.length > 1)
+      toast("Only the first assignee was saved: run the task_assignees migration to enable multiple assignees");
   }
 
   // ---------- story modal ----------
@@ -423,56 +713,103 @@
       return;
     }
 
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Tasks have no Done When and usually no due date of their own, so the card
+    // shows the story's (from this form, so unsaved edits show too).
+    const storyDue = $("#story-due").value;
+    const storyDoneWhen = $("#story-done-when").value.trim();
+
     items.forEach((t) => {
-      const assignee = t.assignee_id ? memberById(t.assignee_id) : null;
+      const due = t.due_date || storyDue;
+      const overdue = due && due < today && t.status !== "done";
+      const priority = t.priority ? String(t.priority).toLowerCase() : "";
 
       const row = document.createElement("div");
       row.className = "story-task-row";
       row.dataset.status = t.status;
 
-      const info = document.createElement("div");
-      info.className = "story-task-info";
-      info.innerHTML =
-        '<p class="story-task-name">' +
-        escapeHtml(t.title) +
-        '</p><div class="story-task-meta"><span class="status-pill ' +
-        t.status +
-        '">' +
-        (STATUS_LABELS[t.status] || t.status) +
-        "</span>" +
-        (t.category ? '<span class="story-task-meta-item">' + escapeHtml(t.category) + "</span>" : "") +
-        (assignee
-          ? '<span class="story-task-meta-item card-assignee"><span class="avatar" style="background:' +
-            assignee.color +
-            '">' +
-            initials(assignee.name) +
-            "</span>" +
-            escapeHtml(assignee.name) +
-            "</span>"
-          : '<span class="story-task-meta-item">Unassigned</span>') +
-        "</div>";
+      // header: title + icon actions top-right
+      const head = document.createElement("div");
+      head.className = "story-task-head";
+
+      const name = document.createElement("p");
+      name.className = "story-task-name";
+      name.textContent = t.title;
 
       const actions = document.createElement("div");
       actions.className = "story-task-actions";
 
       const edit = document.createElement("button");
-      edit.className = "btn ghost small";
-      edit.textContent = "Edit";
+      edit.className = "btn ghost small icon-btn";
+      edit.type = "button";
+      edit.title = "Edit task";
+      edit.setAttribute("aria-label", "Edit task");
+      edit.innerHTML = ICON_EDIT;
       edit.onclick = () => openTaskModal(t.id);
 
       const del = document.createElement("button");
-      del.className = "btn ghost small danger-text";
-      del.textContent = "Delete";
+      del.className = "btn ghost small icon-btn danger-text";
+      del.type = "button";
+      del.title = "Delete task";
+      del.setAttribute("aria-label", "Delete task");
+      del.innerHTML = ICON_DELETE;
       del.onclick = () => deleteModalTask(t);
 
       actions.appendChild(edit);
       actions.appendChild(del);
+      head.appendChild(name);
+      head.appendChild(actions);
 
+      const info = document.createElement("div");
+      info.className = "story-task-info";
+      info.innerHTML =
+        '<div class="story-task-badges"><span class="status-pill ' +
+        escapeAttr(t.status) +
+        '">' +
+        escapeHtml(STATUS_LABELS[t.status] || t.status) +
+        "</span>" +
+        (t.category ? '<span class="story-task-badge">' + escapeHtml(t.category) + "</span>" : "") +
+        (priority
+          ? '<span class="story-task-badge priority-' +
+            escapeAttr(priority) +
+            '">' +
+            escapeHtml(priority.charAt(0).toUpperCase() + priority.slice(1)) +
+            " priority</span>"
+          : "") +
+        "</div>" +
+        (t.description ? '<p class="story-task-desc">' + escapeHtml(t.description) + "</p>" : "") +
+        '<div class="story-task-details">' +
+        taskAssigneesDetailHtml(taskAssigneeIds(t)) +
+        taskDetailHtml(
+          "detail-due" + (overdue ? " overdue" : ""),
+          "Due date",
+          due
+            ? '<span class="detail-value">' +
+                ICON_CALENDAR +
+                '<time datetime="' + escapeAttr(due) + '">' + escapeHtml(formatDay(due)) + "</time></span>" +
+                (overdue ? '<span class="detail-note detail-overdue">Overdue</span>' : "") +
+                (t.due_date ? "" : '<span class="detail-note">Story due date</span>')
+            : '<span class="detail-empty">No due date</span>'
+        ) +
+        taskDetailHtml(
+          "detail-done-when",
+          "Done when",
+          storyDoneWhen
+            ? '<p class="detail-text">' + escapeHtml(storyDoneWhen) + '</p><span class="detail-note">From story</span>'
+            : '<span class="detail-empty">Not set</span>'
+        ) +
+        "</div>";
+
+      row.appendChild(head);
       row.appendChild(info);
-      row.appendChild(actions);
       list.appendChild(row);
     });
   }
+
+  // The cards show the story's due date / Done When: keep them in step with the form.
+  $("#story-due").addEventListener("change", renderStoryTaskList);
+  $("#story-done-when").addEventListener("input", renderStoryTaskList);
 
   // Deletes a task after confirmation. Works for staged (draft) tasks too.
   async function removeTask(t, isDraft) {
@@ -521,7 +858,12 @@
     $("#task-category").value = task && task.category ? task.category : "Feature";
     $("#task-delete").style.display = task ? "inline-block" : "none";
 
-    fillAssigneeOptions($("#task-assignee"), task ? task.assignee_id : "");
+    // Ids of members this tab hasn't loaded stay in the list (not shown, so they
+    // can't be removed here); only what the user unticks counts as a removal.
+    pickerIds = task ? taskAssigneeIds(task) : [];
+    pickerFromIds = task && task.assignee_ids ? task.assignee_ids.slice() : [];
+    renderAssigneePicker();
+    setAssigneeMenuOpen(false);
     setTaskStatusTab(task ? task.status : "in_progress");
 
     $("#task-overlay").style.display = "flex";
@@ -570,16 +912,17 @@
       description: $("#task-desc").value.trim(),
       category: $("#task-category").value || "Feature",
       status: editingTaskStatus,
-      assignee_id: $("#task-assignee").value || null,
+      assignee_id: pickerIds[0] || null, // legacy column: kept as the first assignee
     };
+    const assigneeIds = pickerIds.slice();
 
     // Story not saved yet: stage the task locally.
     if (taskIsDraft) {
       if (editingTaskId) {
         const d = draftTasks.find((x) => x.id === editingTaskId);
-        if (d) Object.assign(d, fields);
+        if (d) Object.assign(d, fields, { assignee_ids: assigneeIds });
       } else {
-        draftTasks.push(Object.assign({ id: "draft_" + ++draftSeq }, fields));
+        draftTasks.push(Object.assign({ id: "draft_" + ++draftSeq }, fields, { assignee_ids: assigneeIds }));
       }
       $("#task-overlay").style.display = "none";
       renderStoryTaskList();
@@ -590,6 +933,8 @@
     saveBtn.disabled = true;
 
     try {
+      if (!(await assigneesLoadedOrWarn())) return;
+
       if (editingTaskId) {
         const { error } = await sb
           .from("tasks")
@@ -597,22 +942,42 @@
           .eq("id", editingTaskId);
 
         if (error) return toast("Couldn't save task: " + error.message);
+
+        const ae = await syncTaskAssignees(editingTaskId, assigneeIds, pickerFromIds);
+        if (ae) return toast("Task saved, but its assignees failed: " + ae.message + ". Click Save to retry.");
       } else {
         // Only columns that exist in public.tasks:
         // title, description, category, status, assignee_id (from `fields`),
         // plus story_id, position, created_by, updated_at.
-        const { error } = await sb.from("tasks").insert(
-          Object.assign({}, fields, {
-            story_id: taskStoryId,
-            position: nextTaskPosition(taskStoryId),
-            created_by: currentUserName(),
-            updated_at: new Date().toISOString(),
-          })
-        );
+        const { data, error } = await sb
+          .from("tasks")
+          .insert(
+            Object.assign({}, fields, {
+              story_id: taskStoryId,
+              position: nextTaskPosition(taskStoryId),
+              created_by: currentUserName(),
+              updated_at: new Date().toISOString(),
+            })
+          )
+          .select("id")
+          .single();
 
         if (error) return toast("Couldn't create task: " + error.message);
+
+        const ae = await syncTaskAssignees(data.id, assigneeIds, []);
+        if (ae) {
+          // The task exists now: switch the popup to editing it, so Save retries
+          // only the assignees instead of creating the task a second time.
+          editingTaskId = data.id;
+          pickerFromIds = [];
+          $("#task-modal-title").textContent = "Edit Task";
+          $("#task-delete").style.display = "inline-block";
+          loadAll();
+          return toast("Task created, but its assignees failed: " + ae.message + ". Click Save to retry.");
+        }
       }
 
+      warnIfSingleAssigneeOnly(assigneeIds);
       $("#task-overlay").style.display = "none";
       await loadAll();
     } finally {
@@ -641,6 +1006,8 @@
     saveBtn.disabled = true;
 
     try {
+      if (!editingStoryId && draftTasks.length && !(await assigneesLoadedOrWarn())) return;
+
       if (editingStoryId) {
         const { error } = await sb.from("stories").update(payload).eq("id", editingStoryId);
 
@@ -659,16 +1026,36 @@
             description: d.description,
             category: d.category,
             status: d.status,
-            assignee_id: d.assignee_id,
+            assignee_id: taskAssigneeIds(d)[0] || null,
             story_id: data.id,
             position: i,
             created_by: currentUserName(),
             updated_at: new Date().toISOString(),
           }));
 
-          const { error: te } = await sb.from("tasks").insert(rows);
+          const { data: saved, error: te } = await sb.from("tasks").insert(rows).select("id, position");
 
-          if (te) toast("Story saved, but its tasks failed: " + te.message);
+          if (te) {
+            toast("Story saved, but its tasks failed: " + te.message);
+          } else if (multiAssigneeReady) {
+            // match inserted rows back to their drafts by position (= draft index)
+            const links = [];
+            (saved || []).forEach((r) => {
+              const d = draftTasks[r.position];
+              if (d) taskAssigneeIds(d).forEach((id) => links.push({ task_id: r.id, member_id: id }));
+            });
+
+            if (links.length) {
+              // ignore duplicates: the database may already have added each first assignee
+              const { error: ae } = await sb
+                .from("task_assignees")
+                .upsert(links, { onConflict: "task_id,member_id", ignoreDuplicates: true });
+              if (ae) toast("Story saved, but task assignees failed: " + ae.message + ". Open its tasks to re-add them.");
+            }
+          } else {
+            const multi = draftTasks.find((d) => taskAssigneeIds(d).length > 1);
+            if (multi) warnIfSingleAssigneeOnly(taskAssigneeIds(multi));
+          }
         }
       }
 
@@ -722,9 +1109,9 @@
     $("#whoami-chip").innerHTML =
       whoamiId && memberById(whoamiId)
         ? '<span class="avatar" style="background:' +
-          memberById(whoamiId).color +
+          safeColor(memberById(whoamiId)) +
           '">' +
-          initials(memberById(whoamiId).name) +
+          escapeHtml(initials(memberById(whoamiId).name)) +
           "</span>" +
           escapeHtml(memberById(whoamiId).name)
         : "Who are you?";
@@ -892,15 +1279,15 @@
       '<div class="card-meta">' +
       (assignee
         ? '<span class="card-assignee"><span class="avatar" style="background:' +
-          assignee.color +
+          safeColor(assignee) +
           '">' +
-          initials(assignee.name) +
+          escapeHtml(initials(assignee.name)) +
           "</span>" +
           escapeHtml(assignee.name) +
           "</span>"
         : '<span class="card-assignee">Unassigned</span>') +
       (st.due_date
-        ? '<span class="due ' + (overdue ? "overdue" : "") + '">' + st.due_date + "</span>"
+        ? '<span class="due ' + (overdue ? "overdue" : "") + '">' + escapeHtml(st.due_date) + "</span>"
         : "<span></span>") +
       "</div>";
 
@@ -924,8 +1311,6 @@
 
     card.addEventListener("click", () => openTaskModal(t.id, { storyId: t.story_id }));
 
-    const assignee = t.assignee_id ? memberById(t.assignee_id) : null;
-
     const today = new Date().toISOString().slice(0, 10);
 
     const overdue = t.due_date && t.due_date < today && t.status !== "done";
@@ -941,17 +1326,9 @@
         ? '<div class="card-tags"><span class="tag dim">' + escapeHtml(t.category) + "</span></div>"
         : "") +
       '<div class="card-meta">' +
-      (assignee
-        ? '<span class="card-assignee"><span class="avatar" style="background:' +
-          assignee.color +
-          '">' +
-          initials(assignee.name) +
-          "</span>" +
-          escapeHtml(assignee.name) +
-          "</span>"
-        : '<span class="card-assignee">Unassigned</span>') +
+      assigneesHtml(taskAssigneeIds(t), '<span class="card-assignee">Unassigned</span>') +
       (t.due_date
-        ? '<span class="due ' + (overdue ? "overdue" : "") + '">' + t.due_date + "</span>"
+        ? '<span class="due ' + (overdue ? "overdue" : "") + '">' + escapeHtml(t.due_date) + "</span>"
         : "<span></span>") +
       "</div>";
 
