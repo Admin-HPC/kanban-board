@@ -1188,6 +1188,40 @@
   }
 
   // Story summary header (click = edit story, drag = change the story's status)
+  // Everyone on a story: its own assignee (if any) plus the assignees of all its
+  // tasks (Done ones too), each person once, in task order. Uses loaded data only.
+  function storyMembers(st) {
+    const ids = [];
+    const add = (id) => { if (id && !ids.includes(id)) ids.push(id); };
+    add(st.assignee_id);
+    tasksForStory(st.id).forEach((t) => taskAssigneeIds(t).forEach(add));
+    return ids.map(memberById).filter(Boolean);
+  }
+
+  function storyPeopleHtml(people) {
+    if (people.length === 0) return '<span class="card-assignee">Unassigned</span>';
+
+    if (people.length === 1) {
+      const m = people[0];
+      return '<span class="card-assignee">' + avatarHtml(m) + escapeHtml(m.name) + "</span>";
+    }
+
+    return (
+      '<span class="card-assignee story-people" aria-label="' + escapeAttr("Assigned: " + people.map((m) => m.name).join(", ")) + '">' +
+      people
+        .map((m) => '<span class="avatar" title="' + escapeAttr(m.name) + '" style="background:' + safeColor(m) + '">' + escapeHtml(initials(m.name)) + "</span>")
+        .join("") +
+      '<span class="people-count">' + people.length + " people</span></span>"
+    );
+  }
+
+  // The story's own priority (what the Priority filter uses; unset counts as medium there too).
+  function storyPriorityTag(st) {
+    const p = String(st.priority || "medium").toLowerCase();
+    const label = p.charAt(0).toUpperCase() + p.slice(1);
+    return '<span class="tag priority-tag priority-' + escapeAttr(p) + '" title="' + escapeAttr("Priority: " + label) + '">' + escapeHtml(label) + "</span>";
+  }
+
   function renderCard(st) {
     const card = document.createElement("div");
 
@@ -1203,8 +1237,6 @@
     card.addEventListener("dragend", () => card.classList.remove("dragging"));
 
     card.addEventListener("click", () => openStoryModal(st.status, st.id));
-
-    const assignee = st.assignee_id ? memberById(st.assignee_id) : null;
 
     const today = new Date().toISOString().slice(0, 10);
 
@@ -1227,19 +1259,12 @@
         : "") +
       '<div class="card-tags">' +
       (st.function ? '<span class="tag">' + escapeHtml(normalizeFunction(st.function)) + "</span>" : "") +
+      storyPriorityTag(st) +
       '<span class="tag dim">' +
       taskLabel +
       "</span></div>" +
       '<div class="card-meta">' +
-      (assignee
-        ? '<span class="card-assignee"><span class="avatar" style="background:' +
-          safeColor(assignee) +
-          '">' +
-          escapeHtml(initials(assignee.name)) +
-          "</span>" +
-          escapeHtml(assignee.name) +
-          "</span>"
-        : '<span class="card-assignee">Unassigned</span>') +
+      storyPeopleHtml(storyMembers(st)) +
       (st.due_date
         ? '<span class="due ' + (overdue ? "overdue" : "") + '">' + escapeHtml(st.due_date) + "</span>"
         : "<span></span>") +
