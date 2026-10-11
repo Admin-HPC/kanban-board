@@ -33,7 +33,7 @@
   let filterMine = false;
   let editingStoryId = null;
   let editingStatus = "todo";
-  let dragItem = null; // { kind: "task" | "story", id }
+  let dragItem = null; // { kind: "story", id }
 
   // Tasks added while creating a brand-new story are staged here and
   // saved together with the story (a new story has no id yet).
@@ -433,6 +433,15 @@
     return true;
   }
 
+  // The board shows stories only: with a task-level filter on, a story stays when
+  // one of its tasks matches (or, for "My tasks only", when the story itself is mine).
+  function storyMatchesTaskFilters(st) {
+    const mine = filterMine && whoamiId;
+    if (!boardFilters.category && !mine) return true;
+    if (tasksForStory(st.id).some(taskMatchesFilters)) return true;
+    return !boardFilters.category && st.assignee_id === whoamiId;
+  }
+
   [
     ["function", "#filter-function"],
     ["category", "#filter-category"],
@@ -456,30 +465,6 @@
     return '<span class="avatar" style="background:' + safeColor(m) + '">' + escapeHtml(initials(m.name)) + "</span>";
   }
 
-  // Assignees on a card: one = avatar + name (as before); several = stacked
-  // avatars, at most MAX_AVATARS bubbles with a "+N" for the rest.
-  const MAX_AVATARS = 4;
-  function assigneesHtml(ids, unassignedHtml) {
-    const list = ids.map(memberById).filter(Boolean);
-
-    if (list.length === 0) return unassignedHtml;
-
-    if (list.length === 1) {
-      return '<span class="card-assignee">' + avatarHtml(list[0]) + escapeHtml(list[0].name) + "</span>";
-    }
-
-    const names = escapeAttr(list.map((m) => m.name).join(", "));
-    const shown = list.length > MAX_AVATARS ? list.slice(0, MAX_AVATARS - 1) : list;
-    const extra = list.length - shown.length;
-
-    return (
-      '<span class="card-assignee" title="' + names + '" aria-label="Assigned to ' + names + '">' +
-      '<span class="avatar-stack">' +
-      shown.map(avatarHtml).join("") +
-      (extra ? '<span class="avatar more">+' + extra + "</span>" : "") +
-      "</span></span>"
-    );
-  }
 
   // ---------- task cards inside the story popup ----------
   const ICON_CALENDAR =
@@ -797,7 +782,7 @@
           "Done when",
           storyDoneWhen
             ? '<p class="detail-text">' + escapeHtml(storyDoneWhen) + '</p><span class="detail-note">From story</span>'
-            : '<span class="detail-empty">Not set</span>'
+            : '<span class="detail-empty">Not specified</span>'
         ) +
         "</div>";
 
@@ -1127,29 +1112,12 @@
       .sort((a, b) => a.position - b.position);
 
     STATUSES.forEach((s) => {
-      // Each column holds TASKS of that status, grouped under their Story.
-      // A story with no visible task here still shows (as an empty group)
-      // in the column that matches the story's own status.
-      const groups = [];
-      let taskCount = 0;
-
-      if (!boardFilters.status || boardFilters.status === s.key) {
-        orderedStories.forEach((st) => {
-          const visible = tasksForStory(st.id).filter(
-            (t) => t.status === s.key && taskMatchesFilters(t)
-          );
-
-          const showEmpty =
-            st.status === s.key &&
-            !boardFilters.category &&
-            (!filterMine || !whoamiId || st.assignee_id === whoamiId);
-
-          if (visible.length || showEmpty) {
-            groups.push({ story: st, tasks: visible });
-            taskCount += visible.length;
-          }
-        });
-      }
+      // Each column holds the STORY cards of that status. Tasks aren't drawn on
+      // the board (they're opened from their story).
+      const shown =
+        !boardFilters.status || boardFilters.status === s.key
+          ? orderedStories.filter((st) => st.status === s.key && storyMatchesTaskFilters(st))
+          : [];
 
       const col = document.createElement("div");
       col.className = "column";
@@ -1164,7 +1132,7 @@
         '"></span>' +
         s.label +
         '</div><span class="count">' +
-        taskCount +
+        shown.length +
         "</span>";
 
       col.appendChild(head);
@@ -1187,14 +1155,14 @@
         handleDrop(s.key, list, e.clientY);
       });
 
-      if (groups.length === 0) {
+      if (shown.length === 0) {
         const hint = document.createElement("div");
         hint.className = "empty-hint";
-        hint.textContent = "No tasks";
+        hint.textContent = "No stories";
         list.appendChild(hint);
       }
 
-      groups.forEach((g) => list.appendChild(renderStoryGroup(g.story, g.tasks, s.key)));
+      shown.forEach((st) => list.appendChild(renderStoryGroup(st)));
 
       col.appendChild(list);
 
@@ -1209,27 +1177,13 @@
     });
   }
 
-  function renderStoryGroup(st, visibleTasks, columnStatus) {
+  // A story on the board: just its card. (The .story-group wrapper is what
+  // dropStory() measures to find the drop position.)
+  function renderStoryGroup(st) {
     const group = document.createElement("div");
     group.className = "story-group";
     group.dataset.storyId = st.id;
-
-    // The Story card itself appears only once: in the column of its own status.
-    if (st.status === columnStatus) group.appendChild(renderCard(st));
-
-    const wrap = document.createElement("div");
-    wrap.className = "group-tasks";
-
-    if (visibleTasks.length === 0) {
-      const hint = document.createElement("div");
-      hint.className = "empty-hint";
-      hint.textContent = "No tasks here";
-      wrap.appendChild(hint);
-    }
-
-    visibleTasks.forEach((t) => wrap.appendChild(renderTaskCard(t)));
-
-    group.appendChild(wrap);
+    group.appendChild(renderCard(st));
     return group;
   }
 
@@ -1295,112 +1249,13 @@
   }
 
   // Individual task card (click = edit task, drag = change the task's status)
-  function renderTaskCard(t) {
-    const card = document.createElement("div");
-
-    card.className = "card task-card";
-    card.draggable = true;
-    card.dataset.id = t.id;
-
-    card.addEventListener("dragstart", () => {
-      dragItem = { kind: "task", id: t.id };
-      card.classList.add("dragging");
-    });
-
-    card.addEventListener("dragend", () => card.classList.remove("dragging"));
-
-    card.addEventListener("click", () => openTaskModal(t.id, { storyId: t.story_id }));
-
-    const today = new Date().toISOString().slice(0, 10);
-
-    const overdue = t.due_date && t.due_date < today && t.status !== "done";
-
-    card.innerHTML =
-      '<p class="card-title">' +
-      escapeHtml(t.title) +
-      "</p>" +
-      (t.description
-        ? '<p class="card-desc">' + escapeHtml(t.description) + "</p>"
-        : "") +
-      (t.category
-        ? '<div class="card-tags"><span class="tag dim">' + escapeHtml(t.category) + "</span></div>"
-        : "") +
-      '<div class="card-meta">' +
-      assigneesHtml(taskAssigneeIds(t), '<span class="card-assignee">Unassigned</span>') +
-      (t.due_date
-        ? '<span class="due ' + (overdue ? "overdue" : "") + '">' + escapeHtml(t.due_date) + "</span>"
-        : "<span></span>") +
-      "</div>";
-
-    return card;
-  }
-
   function handleDrop(status, listEl, clientY) {
     const item = dragItem;
     dragItem = null;
 
-    if (!item) return;
-
-    if (item.kind === "task") return dropTask(item.id, status, listEl, clientY);
+    if (!item || item.kind !== "story") return;
 
     return dropStory(item.id, status, listEl, clientY);
-  }
-
-  // Dropping a task changes ONLY its status and its order. It stays in its own story.
-  function dropTask(id, status, listEl, clientY) {
-    const t = tasks.find((x) => x.id === id);
-
-    if (!t) return;
-
-    const siblings = tasksForStory(t.story_id).filter((x) => x.status === status && x.id !== id);
-
-    let newPos = t.position;
-
-    if (siblings.length) {
-      const group = Array.from(listEl.querySelectorAll(".story-group")).find(
-        (g) => g.dataset.storyId === t.story_id
-      );
-
-      let insertBeforeId = null;
-
-      if (group) {
-        for (const c of group.querySelectorAll(".task-card")) {
-          if (c.dataset.id === id) continue;
-
-          const rect = c.getBoundingClientRect();
-
-          if (clientY < rect.top + rect.height / 2) {
-            insertBeforeId = c.dataset.id;
-            break;
-          }
-        }
-      }
-
-      const idx = insertBeforeId ? siblings.findIndex((x) => x.id === insertBeforeId) : -1;
-
-      if (idx < 0) {
-        newPos = siblings[siblings.length - 1].position + 1;
-      } else {
-        const before = idx > 0 ? siblings[idx - 1].position : siblings[idx].position - 1;
-
-        newPos = (before + siblings[idx].position) / 2;
-      }
-    }
-
-    sb.from("tasks")
-      .update({
-        status,
-        position: newPos,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", id)
-      .then(({ error }) => {
-        if (error) {
-          toast("Couldn't move task: " + error.message);
-        } else {
-          loadAll();
-        }
-      });
   }
 
   // Dropping a story header changes the story's own status/order.

@@ -137,12 +137,9 @@ body {
 }
 .card:hover { border-color: var(--accent); }
 .card.dragging { opacity: 0.4; }
-/* Story group inside a column: story summary header + its task cards */
+/* Story card in a column (tasks are opened from the story, not shown on the board) */
 .story-group { display: flex; flex-direction: column; gap: 6px; }
 .story-card { border-left: 3px solid var(--accent); }
-.group-tasks { display: flex; flex-direction: column; gap: 6px; padding-left: 10px; border-left: 2px solid var(--border); margin-left: 4px; }
-.group-tasks .empty-hint { padding: 6px 8px; }
-.task-card { padding: 10px 12px; }
 .card-title { font-size: 13.5px; font-weight: 600; margin: 0 0 6px; line-height: 1.35; }
 .card-desc { font-size: 12px; color: var(--text-dim); margin: 0 0 8px; line-height: 1.4; max-height: 3.6em; overflow: hidden; }
 .card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
@@ -150,11 +147,6 @@ body {
 .tag.dim { background: var(--bg); color: var(--text-dim); }
 .card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .card-assignee { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-dim); font-weight: 600; }
-/* several assignees: overlapping avatars, "+N" for the rest */
-.avatar-stack { display: inline-flex; align-items: center; }
-.avatar-stack .avatar { box-shadow: 0 0 0 2px var(--panel); }
-.avatar-stack .avatar + .avatar { margin-left: -6px; }
-.avatar.more { background: var(--text-dim); font-size: 9.5px; }
 .due { font-size: 11px; padding: 2px 7px; border-radius: 6px; background: var(--bg); color: var(--text-dim); font-weight: 600; }
 .due.overdue { background: #fdeceb; color: var(--danger); }
 
