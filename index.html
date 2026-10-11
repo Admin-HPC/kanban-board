@@ -13,8 +13,15 @@
   <div class="topbar">
     <h1 id="board-title">Team Board</h1>
     <div class="topbar-right">
-      <select class="chip" id="filter-category" title="Filter by category">
-        <option value="">All categories</option>
+      <select class="chip" id="filter-function" title="Filter by function">
+        <option value="">All functions</option>
+        <option value="Engineering">Engineering</option>
+        <option value="Products">Products</option>
+        <option value="Sales">Sales</option>
+        <option value="Marketing &amp; Lead Generation">Marketing &amp; Lead Generation</option>
+      </select>
+      <select class="chip" id="filter-category" title="Filter tasks by category">
+        <option value="">All task categories</option>
         <option value="Feature">Feature</option>
         <option value="Bug">Bug</option>
         <option value="Improvement">Improvement</option>
@@ -69,33 +76,91 @@
   </div>
 </div>
 
-<div class="overlay" id="task-overlay" style="display:none;">
-  <div class="modal">
-    <h2 id="task-modal-title">New task</h2>
-    <div class="field">
-      <label>Status</label>
-      <div class="status-tabs" id="task-status-tabs">
-        <div class="status-tab todo" data-status="todo">To Do</div>
-        <div class="status-tab in_progress" data-status="in_progress">In Progress</div>
-        <div class="status-tab done" data-status="done">Done</div>
+<!-- Story modal -->
+<div class="overlay" id="story-overlay" style="display:none;">
+  <div class="modal story-modal">
+    <div class="story-modal-head">
+      <h2 id="story-modal-title">New Story</h2>
+      <button class="story-modal-close" id="story-close" type="button" aria-label="Close">&times;</button>
+    </div>
+    <div class="story-modal-body">
+      <div class="field">
+        <label>Status</label>
+        <div class="status-tabs" id="story-status-tabs">
+          <div class="status-tab todo" data-status="todo">To Do</div>
+          <div class="status-tab in_progress" data-status="in_progress">In Progress</div>
+          <div class="status-tab done" data-status="done">Done</div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Story Title</label>
+        <input type="text" id="story-title" placeholder="e.g. Launch the new landing page" />
+      </div>
+      <div class="row-2">
+        <div class="field">
+          <label>Function</label>
+          <select id="story-function">
+            <option value="" disabled hidden>Select function</option>
+            <option value="Engineering">Engineering</option>
+            <option value="Products">Products</option>
+            <option value="Sales">Sales</option>
+            <option value="Marketing &amp; Lead Generation">Marketing &amp; Lead Generation</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Priority</label>
+          <select id="story-priority">
+            <option value="low">Low</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Story Description</label>
+        <textarea id="story-desc" placeholder="Optional details..."></textarea>
+      </div>
+      <div class="field">
+        <label>Due date</label>
+        <input type="date" id="story-due" />
+      </div>
+      <div class="field">
+        <label>Done when</label>
+        <input type="text" id="story-done-when" placeholder="e.g. Checkout flow passes QA" />
+      </div>
+      <div class="field story-tasks-section">
+        <div class="task-section-head">
+          <label>Tasks</label>
+          <button class="btn secondary small" id="story-add-task" type="button">+ New Task</button>
+        </div>
+        <div class="story-task-list" id="story-task-list"></div>
       </div>
     </div>
+    <div class="modal-actions">
+      <button class="btn danger ghost" id="story-delete" style="display:none;">Delete</button>
+      <div class="right">
+        <button class="btn secondary" id="story-cancel">Cancel</button>
+        <button class="btn" id="story-save">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Task popup (opens on top of the story modal) -->
+<div class="overlay" id="task-overlay" style="display:none;">
+  <div class="modal">
+    <h2 id="task-modal-title">New Task</h2>
     <div class="field">
-      <label>Title</label>
-      <input type="text" id="task-title" placeholder="e.g. Design the landing page" />
+      <label>Task Name</label>
+      <input type="text" id="task-name" placeholder="e.g. Design the hero section" />
     </div>
     <div class="field">
-      <label>Story</label>
-    <select id="task-story">
-  <option value="">Select Story</option>
-  <option value="__create_new_story__">+ Create New Story</option>
-</select>
-    </div>
-    <div class="field" id="task-story-new-field" style="display:none;">
-      <input type="text" id="task-story-new" placeholder="Enter new story..." />
+      <label>Assignee</label>
+      <select id="task-assignee"></select>
     </div>
     <div class="field">
-      <label>Category</label>
+      <label>Task Category</label>
       <select id="task-category">
         <option value="Feature">Feature</option>
         <option value="Bug">Bug</option>
@@ -105,38 +170,22 @@
       </select>
     </div>
     <div class="field">
-      <label>Description</label>
+      <label>Task Description</label>
       <textarea id="task-desc" placeholder="Optional details..."></textarea>
     </div>
     <div class="field">
-  <label>Done when</label>
-  <input type="date" id="task-done-when" />
-</div>
-    
-    <div class="field">
-      <label>Priority</label>
-      <select id="task-priority">
-        <option value="low">Low</option>
-        <option value="medium" selected>Medium</option>
-        <option value="high">High</option>
-        <option value="urgent">Urgent</option>
-      </select>
-    </div>
-    <div class="row-2">
-      <div class="field">
-        <label>Assignee</label>
-        <select id="task-assignee"></select>
-      </div>
-      <div class="field">
-        <label>Due date</label>
-        <input type="date" id="task-due" />
+      <label>Status</label>
+      <div class="status-tabs" id="task-status-tabs">
+        <div class="status-tab todo" data-status="todo">To Do</div>
+        <div class="status-tab in_progress active" data-status="in_progress">In Progress</div>
+        <div class="status-tab done" data-status="done">Done</div>
       </div>
     </div>
     <div class="modal-actions">
       <button class="btn danger ghost" id="task-delete" style="display:none;">Delete</button>
       <div class="right">
         <button class="btn secondary" id="task-cancel">Cancel</button>
-        <button class="btn" id="task-save">Save</button>
+        <button class="btn" id="task-save">Save Task</button>
       </div>
     </div>
   </div>

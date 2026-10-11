@@ -42,7 +42,7 @@ body {
   margin: 0;
   letter-spacing: -0.01em;
 }
-.topbar-right { display: flex; align-items: center; gap: 10px; }
+.topbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 .chip {
   display: inline-flex;
@@ -77,9 +77,11 @@ body {
   color: #fff;
 }
 .btn:hover { filter: brightness(1.06); }
+.btn:disabled { opacity: .6; cursor: default; }
 .btn.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
 .btn.danger { background: var(--danger); }
 .btn.ghost { background: transparent; color: var(--text-dim); }
+.btn.ghost.danger-text { color: var(--danger); }
 .btn.small { padding: 5px 10px; font-size: 12px; }
 
 /* ---------- Board ---------- */
@@ -135,8 +137,17 @@ body {
 }
 .card:hover { border-color: var(--accent); }
 .card.dragging { opacity: 0.4; }
+/* Story group inside a column: story summary header + its task cards */
+.story-group { display: flex; flex-direction: column; gap: 6px; }
+.story-card { border-left: 3px solid var(--accent); }
+.group-tasks { display: flex; flex-direction: column; gap: 6px; padding-left: 10px; border-left: 2px solid var(--border); margin-left: 4px; }
+.group-tasks .empty-hint { padding: 6px 8px; }
+.task-card { padding: 10px 12px; }
 .card-title { font-size: 13.5px; font-weight: 600; margin: 0 0 6px; line-height: 1.35; }
 .card-desc { font-size: 12px; color: var(--text-dim); margin: 0 0 8px; line-height: 1.4; max-height: 3.6em; overflow: hidden; }
+.card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.tag { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; background: var(--accent-dim); color: var(--accent); }
+.tag.dim { background: var(--bg); color: var(--text-dim); }
 .card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .card-assignee { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-dim); font-weight: 600; }
 .due { font-size: 11px; padding: 2px 7px; border-radius: 6px; background: var(--bg); color: var(--text-dim); font-weight: 600; }
@@ -162,6 +173,8 @@ body {
   display: flex; align-items: center; justify-content: center;
   padding: 20px; z-index: 50;
 }
+/* The task popup sits on top of the story modal */
+#task-overlay { z-index: 60; }
 .modal {
   background: var(--panel);
   border-radius: 14px;
@@ -201,6 +214,83 @@ body {
 .status-tab.active.in_progress { background: #fdf3e3; border-color: var(--progress); color: #8a5e13; }
 .status-tab.active.done { background: #e6f6ee; border-color: var(--done); color: #1e7a4c; }
 
+/* ---------- Story modal (compact: fixed header/footer, scrolling body) ---------- */
+.modal.story-modal {
+  max-width: 580px;
+  max-height: 85vh;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.story-modal-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.story-modal-head h2 { margin: 0; }
+.story-modal-close {
+  border: none; background: transparent; color: var(--text-dim);
+  font-size: 22px; line-height: 1; width: 30px; height: 30px; border-radius: 7px;
+  cursor: pointer; flex-shrink: 0;
+}
+.story-modal-close:hover { background: var(--bg); color: var(--text); }
+.story-modal-body {
+  flex: 1; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding: 14px 20px 4px;
+}
+.story-modal .field { margin-bottom: 11px; }
+.story-modal .field label { margin-bottom: 4px; }
+.story-modal .field input[type=text], .story-modal .field textarea,
+.story-modal .field select, .story-modal .field input[type=date] { padding: 7px 10px; }
+.story-modal .field textarea { min-height: 64px; height: 72px; }
+.story-modal .status-tab { padding: 5px; }
+.story-modal .row-2 > div { min-width: 0; }
+.story-modal .task-section-head { margin-bottom: 6px; }
+.story-modal .story-task-list { max-height: 180px; }
+.story-modal .story-task-list .empty-hint { padding: 10px 8px; }
+.story-modal .story-tasks-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.story-modal .story-tasks-section .task-section-head label { font-size: 12.5px; color: var(--text); }
+.story-modal .story-task-row {
+  background: var(--panel); border-left: 3px solid var(--todo);
+  padding: 9px 10px 9px 12px; gap: 10px;
+}
+.story-modal .story-task-row[data-status="in_progress"] { border-left-color: var(--progress); }
+.story-modal .story-task-row[data-status="done"] { border-left-color: var(--done); }
+.story-modal .story-task-name { font-size: 13.5px; font-weight: 700; margin-bottom: 5px; }
+.story-modal .story-task-meta { gap: 6px 8px; }
+.story-modal .story-task-meta-item { padding-left: 8px; border-left: 1px solid var(--border); }
+.story-modal .story-task-meta .card-assignee { gap: 5px; }
+.story-modal .story-task-meta .avatar { width: 18px; height: 18px; font-size: 9px; }
+.story-modal .modal-actions {
+  margin-top: 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+}
+/* no background scrolling while the story modal is open */
+body:has(#story-overlay[style*="flex"]) { overflow: hidden; }
+
+/* ---------- Story tasks (inside story modal) ---------- */
+.task-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.task-section-head label { margin-bottom: 0; }
+.story-task-list { display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; }
+.story-task-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
+}
+.story-task-info { flex: 1; min-width: 0; }
+.story-task-name { font-size: 13px; font-weight: 600; margin: 0 0 4px; overflow-wrap: anywhere; }
+.story-task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-dim); font-weight: 600; }
+.story-task-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.status-pill { font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 6px; }
+.status-pill.todo { background: #eef0f4; color: #4c5063; }
+.status-pill.in_progress { background: #fdf3e3; color: #8a5e13; }
+.status-pill.done { background: #e6f6ee; color: #1e7a4c; }
+
 .empty-hint { text-align: center; color: var(--text-dim); font-size: 12px; padding: 18px 8px; }
 
 .toast {
@@ -209,12 +299,34 @@ body {
   font-size: 13px; box-shadow: var(--shadow); z-index: 100;
 }
 
-.member-manage-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; max-height: 200px; overflow-y: auto; }
-.member-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.member-row span { flex: 1; }
+.member-manage-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; max-height: min(300px, 45vh); overflow-y: auto; overscroll-behavior: contain; }
+.member-row {
+  display: flex; align-items: center; gap: 10px; font-size: 13px;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
+}
+.member-avatar { width: 30px; height: 30px; min-width: 30px; font-size: 11px; }
+.member-info { flex: 1; min-width: 0; }
+.member-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.member-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-pct { font-size: 12px; font-weight: 700; color: var(--done); flex-shrink: 0; }
+.member-progress { height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; margin: 5px 0; }
+.member-progress-fill { height: 100%; background: var(--done); border-radius: 3px; }
+.member-counts { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11.5px; color: var(--text-dim); font-weight: 600; }
+.member-count { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.member-count .dot { width: 7px; height: 7px; }
+.member-row > .btn { flex-shrink: 0; }
 
 @media (max-width: 640px) {
   .board { padding: 14px; }
   .column { width: 86vw; min-width: 86vw; }
   .topbar { padding: 12px 14px; }
+  .overlay { padding: 12px; }
+  .modal { padding: 18px; }
+  .story-task-row { flex-wrap: wrap; }
+  .story-task-actions { width: 100%; justify-content: flex-end; }
+  .modal.story-modal { max-height: calc(100dvh - 24px); }
+  .story-modal-head { padding: 14px 16px 10px; }
+  .story-modal-body { padding: 12px 16px 2px; }
+  .story-modal .modal-actions { padding: 10px 16px; }
+  .story-modal .row-2 { flex-direction: column; gap: 0; }
 }
