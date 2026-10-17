@@ -700,10 +700,9 @@
 
     const today = new Date().toISOString().slice(0, 10);
 
-    // Tasks have no Done When and usually no due date of their own, so the card
-    // shows the story's (from this form, so unsaved edits show too).
+    // A task without its own due date falls back to the story's (labelled as such;
+    // read from this form, so unsaved edits show too).
     const storyDue = $("#story-due").value;
-    const storyDoneWhen = $("#story-done-when").value.trim();
 
     items.forEach((t) => {
       const due = t.due_date || storyDue;
@@ -780,8 +779,9 @@
         taskDetailHtml(
           "detail-done-when",
           "Done when",
-          storyDoneWhen
-            ? '<p class="detail-text">' + escapeHtml(storyDoneWhen) + '</p><span class="detail-note">From story</span>'
+          // the task's own description (tasks.description); never the story's Done When
+          t.description && t.description.trim()
+            ? '<p class="detail-text">' + escapeHtml(t.description) + "</p>"
             : '<span class="detail-empty">Not specified</span>'
         ) +
         "</div>";
@@ -792,9 +792,8 @@
     });
   }
 
-  // The cards show the story's due date / Done When: keep them in step with the form.
+  // Cards without their own due date show the story's: keep them in step with the form.
   $("#story-due").addEventListener("change", renderStoryTaskList);
-  $("#story-done-when").addEventListener("input", renderStoryTaskList);
 
   // Deletes a task after confirmation. Works for staged (draft) tasks too.
   async function removeTask(t, isDraft) {
