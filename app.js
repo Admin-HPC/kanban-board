@@ -707,7 +707,6 @@
     items.forEach((t) => {
       const due = t.due_date || storyDue;
       const overdue = due && due < today && t.status !== "done";
-      const priority = t.priority ? String(t.priority).toLowerCase() : "";
 
       const row = document.createElement("div");
       row.className = "story-task-row";
@@ -754,13 +753,6 @@
         escapeHtml(STATUS_LABELS[t.status] || t.status) +
         "</span>" +
         (t.category ? '<span class="story-task-badge">' + escapeHtml(t.category) + "</span>" : "") +
-        (priority
-          ? '<span class="story-task-badge priority-' +
-            escapeAttr(priority) +
-            '">' +
-            escapeHtml(priority.charAt(0).toUpperCase() + priority.slice(1)) +
-            " priority</span>"
-          : "") +
         "</div>" +
         (t.description ? '<p class="story-task-desc">' + escapeHtml(t.description) + "</p>" : "") +
         '<div class="story-task-details">' +

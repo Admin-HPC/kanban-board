@@ -337,16 +337,13 @@ body {
 .story-modal .story-task-actions .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .story-modal .story-task-info { display: flex; flex-direction: column; gap: 10px; }
 
-/* status / type / priority: one row of compact pills sized to their text */
+/* status / type: one row of compact pills sized to their text */
 .story-modal .story-task-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; }
 .story-modal .story-task-badges > span {
   display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px;
   font-size: 11px; font-weight: 600; line-height: 1.2; white-space: nowrap;
 }
 .story-modal .story-task-badge { background: #f1f3f7; color: #4c5063; }
-.story-modal .story-task-badge.priority-medium { background: var(--accent-dim); color: var(--accent); }
-.story-modal .story-task-badge.priority-high,
-.story-modal .story-task-badge.priority-urgent { background: #fdeceb; color: var(--danger); }
 
 .story-modal .story-task-desc {
   margin: 0; font-size: 12.5px; line-height: 1.55; color: #4a5168;
