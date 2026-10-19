@@ -769,12 +769,12 @@
             : '<span class="detail-empty">No due date</span>'
         ) +
         taskDetailHtml(
-          "detail-done-when",
-          "Done when",
-          // the task's own description (tasks.description); never the story's Done When
-          t.description && t.description.trim()
-            ? '<p class="detail-text">' + escapeHtml(t.description) + "</p>"
-            : '<span class="detail-empty">Not specified</span>'
+          "detail-comments",
+          "Comments",
+          // the task's own comments (tasks.comments), never its description or the story's
+          t.comments && t.comments.trim()
+            ? '<p class="detail-text">' + escapeHtml(t.comments) + "</p>"
+            : '<span class="detail-empty">No comments</span>'
         ) +
         "</div>";
 
@@ -831,6 +831,7 @@
     $("#task-modal-title").textContent = task ? "Edit Task" : "New Task";
     $("#task-name").value = task ? task.title : "";
     $("#task-desc").value = task ? task.description || "" : "";
+    $("#task-comments").value = task ? task.comments || "" : "";
     $("#task-category").value = task && task.category ? task.category : "Feature";
     $("#task-delete").style.display = task ? "inline-block" : "none";
 
@@ -886,6 +887,7 @@
     const fields = {
       title,
       description: $("#task-desc").value.trim(),
+      comments: $("#task-comments").value.trim() || null, // null when empty
       category: $("#task-category").value || "Feature",
       status: editingTaskStatus,
       assignee_id: pickerIds[0] || null, // legacy column: kept as the first assignee
@@ -923,7 +925,7 @@
         if (ae) return toast("Task saved, but its assignees failed: " + ae.message + ". Click Save to retry.");
       } else {
         // Only columns that exist in public.tasks:
-        // title, description, category, status, assignee_id (from `fields`),
+        // title, description, comments, category, status, assignee_id (from `fields`),
         // plus story_id, position, created_by, updated_at.
         const { data, error } = await sb
           .from("tasks")
@@ -1000,6 +1002,7 @@
           const rows = draftTasks.map((d, i) => ({
             title: d.title,
             description: d.description,
+            comments: d.comments || null,
             category: d.category,
             status: d.status,
             assignee_id: taskAssigneeIds(d)[0] || null,
