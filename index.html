@@ -12,43 +12,63 @@
 <div id="app">
   <div class="topbar">
     <h1 id="board-title">Team Board</h1>
-    <div class="topbar-right">
+  </div>
+
+  <section class="filter-section" aria-labelledby="work-filters-title">
+    <div class="section-title" id="work-filters-title"><span class="section-dot"></span>Work filters</div>
+    <div class="filter-row">
       <select class="chip" id="filter-function" title="Filter by function">
-        <option value="">All functions</option>
+        <option value="">All Functions</option>
         <option value="Engineering">Engineering</option>
-        <option value="Products">Products</option>
+        <option value="Products">Product Function</option>
         <option value="Sales">Sales</option>
         <option value="Marketing &amp; Lead Generation">Marketing &amp; Lead Generation</option>
       </select>
+      <select class="chip" id="filter-product" title="Filter by product">
+        <option value="">All Products</option>
+      </select>
+      <select class="chip" id="filter-customer" title="Filter by customer">
+        <option value="">All Customers</option>
+      </select>
       <select class="chip" id="filter-category" title="Filter tasks by category">
-        <option value="">All task categories</option>
+        <option value="">All Task Categories</option>
         <option value="Feature">Feature</option>
         <option value="Bug">Bug</option>
         <option value="Improvement">Improvement</option>
         <option value="Testing">Testing</option>
         <option value="Documentation">Documentation</option>
       </select>
+    </div>
+    <div class="filter-row">
       <select class="chip" id="filter-priority" title="Filter by priority">
-        <option value="">All priorities</option>
+        <option value="">All Priorities</option>
         <option value="low">Low</option>
         <option value="medium">Medium</option>
         <option value="high">High</option>
         <option value="urgent">Urgent</option>
       </select>
-      <select class="chip" id="filter-story" title="Filter by story" style="max-width:200px;">
-        <option value="">All stories</option>
+      <select class="chip" id="filter-story" title="Filter by story">
+        <option value="">All Stories</option>
       </select>
       <select class="chip" id="filter-status" title="Filter by status">
-        <option value="">All status</option>
+        <option value="">All Status</option>
         <option value="todo">To Do</option>
         <option value="in_progress">In Progress</option>
         <option value="done">Done</option>
       </select>
-      <button class="chip" id="my-tasks-toggle" title="Show only tasks assigned to you">My tasks only</button>
+      <button class="chip" id="my-tasks-toggle" title="Show only tasks assigned to you">My Tasks Only</button>
+    </div>
+  </section>
+
+  <hr class="section-divider" />
+
+  <section class="team-section" aria-labelledby="team-title">
+    <div class="section-title" id="team-title"><span class="section-dot"></span>Team</div>
+    <div class="team-row">
       <button class="chip" id="manage-members-btn">Team</button>
       <button class="chip" id="whoami-chip"></button>
     </div>
-  </div>
+  </section>
 
   <div class="board" id="board">
     <!-- columns injected by app.js -->
@@ -102,7 +122,7 @@
           <select id="story-function">
             <option value="" disabled hidden>Select function</option>
             <option value="Engineering">Engineering</option>
-            <option value="Products">Products</option>
+            <option value="Products">Product Function</option>
             <option value="Sales">Sales</option>
             <option value="Marketing &amp; Lead Generation">Marketing &amp; Lead Generation</option>
           </select>
@@ -115,6 +135,22 @@
             <option value="high">High</option>
             <option value="urgent">Urgent</option>
           </select>
+        </div>
+      </div>
+      <div class="row-2">
+        <div class="field">
+          <label>Product</label>
+          <select id="story-product">
+            <option value="" disabled hidden>Select product</option>
+          </select>
+          <p class="field-error" id="story-product-error" hidden></p>
+        </div>
+        <div class="field">
+          <label>Customer</label>
+          <select id="story-customer">
+            <option value="" disabled hidden>Select customer</option>
+          </select>
+          <p class="field-error" id="story-customer-error" hidden></p>
         </div>
       </div>
       <div class="field">
@@ -174,6 +210,10 @@
       </select>
     </div>
     <div class="field">
+      <label>Due date</label>
+      <input type="date" id="task-due" />
+    </div>
+    <div class="field">
       <label>Task Description</label>
       <textarea id="task-desc" placeholder="Optional details..."></textarea>
     </div>
@@ -217,10 +257,28 @@
   </div>
 </div>
 
+<div class="overlay" id="master-add-overlay" style="display:none;">
+  <div class="modal">
+    <h2 id="master-add-title">Add product</h2>
+    <div class="field">
+      <label id="master-add-label">Product name</label>
+      <input type="text" id="master-add-name" />
+      <p class="field-error" id="master-add-error" hidden></p>
+    </div>
+    <div class="modal-actions">
+      <div></div>
+      <div class="right">
+        <button class="btn secondary" id="master-add-cancel" type="button">Cancel</button>
+        <button class="btn" id="master-add-save" type="button">Add</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="toast-holder"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=2"></script>
 </body>
 </html>

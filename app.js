@@ -22,6 +22,8 @@
 
   let members = [];
   let stories = [];
+  let products = []; // products master table (seeded by the migration; more added in the app)
+  let customers = []; // customers master table (empty until customers are added)
   let tasks = []; // only tasks that belong to a story (story_id set)
   // false until supabase-migration-task-assignees.sql has been run; tasks then
   // fall back to the single tasks.assignee_id column.
@@ -168,11 +170,13 @@
 
   // ---------- data loading ----------
   async function loadAll() {
-    const [mRes, sRes, tRes, aRes] = await Promise.all([
+    const [mRes, sRes, tRes, aRes, cRes, pRes] = await Promise.all([
       loadAllRows("members", "*", ["id"]),
       loadAllRows("stories", "*", ["id"]),
       loadAllRows("tasks", "*", ["id"]),
       loadAllRows("task_assignees", "task_id, member_id, created_at", ["task_id", "member_id"]),
+      loadAllRows("customers", "*", ["id"]),
+      loadAllRows("products", "*", ["id"]),
     ]);
 
     if (mRes.error) return toast("Couldn't load members: " + mRes.error.message);
@@ -188,6 +192,12 @@
     members = sortRows(mRes.data || [], "created_at");
     stories = sortRows(sRes.data || [], "position");
     tasks = sortRows((tRes.data || []).filter((t) => t.story_id), "position");
+
+    // Missing master tables just mean the migration hasn't run yet: their lists stay empty.
+    if (cRes.error && !isMissingTableError(cRes.error)) toast("Couldn't load customers: " + cRes.error.message);
+    customers = cRes.error ? [] : sortRows(cRes.data || [], "name");
+    if (pRes.error && !isMissingTableError(pRes.error)) toast("Couldn't load products: " + pRes.error.message);
+    products = pRes.error ? [] : sortRows(pRes.data || [], "name");
 
     // A missing task_assignees table just means the migration hasn't run yet.
     assigneeLoadError = null;
@@ -211,6 +221,13 @@
     .on("postgres_changes", { event: "*", schema: "public", table: "stories" }, loadAll)
     .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, loadAll)
     .on("postgres_changes", { event: "*", schema: "public", table: "members" }, loadAll)
+    .subscribe();
+
+  // Separate channel so a not-yet-created products/customers table can't break the main sync.
+  sb
+    .channel("kanban-sync-master")
+    .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, loadAll)
+    .on("postgres_changes", { event: "*", schema: "public", table: "products" }, loadAll)
     .subscribe();
 
   // Separate channel so a not-yet-created task_assignees table can't break the main sync.
@@ -385,7 +402,7 @@
   };
 
   // ---------- board filters (function / task category / priority / story / status) ----------
-  const boardFilters = { function: "", category: "", priority: "", story: "", status: "" };
+  const boardFilters = { function: "", product: "", customer: "", category: "", priority: "", story: "", status: "" };
 
   function refreshStoryFilterOptions() {
     const sel = $("#filter-story");
@@ -395,7 +412,7 @@
       .slice()
       .sort((a, b) => (a.title || "").localeCompare(b.title || ""));
 
-    sel.innerHTML = '<option value="">All stories</option>';
+    sel.innerHTML = '<option value="">All Stories</option>';
     list.forEach((s) => {
       const opt = document.createElement("option");
       opt.value = s.id;
@@ -418,9 +435,58 @@
     return LEGACY_FUNCTIONS[f] || f;
   }
 
-  // Story-level filters (function / priority / story).
+  // Display names for stored function values. The stored value stays "Products".
+  const FUNCTION_LABELS = { Products: "Product Function" };
+  function functionLabel(f) {
+    const name = normalizeFunction(f);
+    return FUNCTION_LABELS[name] || name;
+  }
+
+  // Fills a <select> with [value, label] pairs and keeps the current choice if it still exists.
+  function fillOptions(sel, pairs, placeholderHtml, current) {
+    sel.innerHTML = placeholderHtml;
+    pairs.forEach(([value, label]) => {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
+      sel.appendChild(opt);
+    });
+    sel.value = pairs.some(([value]) => value === current) ? current : "";
+    return sel.value;
+  }
+
+  // Board filters: one option per master row, kept in step with the lists.
+  function refreshProductFilterOptions() {
+    const sel = $("#filter-product");
+    if (!sel) return;
+    boardFilters.product = fillOptions(
+      sel,
+      products.map((p) => [p.name, p.name]),
+      '<option value="">All Products</option>',
+      boardFilters.product
+    );
+  }
+
+  function refreshCustomerFilterOptions() {
+    const sel = $("#filter-customer");
+    if (!sel) return;
+    boardFilters.customer = fillOptions(
+      sel,
+      customers.map((c) => [c.id, c.name]),
+      '<option value="">All Customers</option>',
+      boardFilters.customer
+    );
+  }
+
+  function customerById(id) {
+    return id ? customers.find((c) => c.id === id) || null : null;
+  }
+
+  // Story-level filters (function / product / customer / priority / story).
   function storyMatchesFilters(s) {
     if (boardFilters.function && (normalizeFunction(s.function) || "") !== boardFilters.function) return false;
+    if (boardFilters.product && (s.product || "") !== boardFilters.product) return false;
+    if (boardFilters.customer && (s.customer_id || "") !== boardFilters.customer) return false;
     if (boardFilters.priority && (s.priority || "medium").toLowerCase() !== boardFilters.priority) return false;
     if (boardFilters.story && s.id !== boardFilters.story) return false;
     return true;
@@ -444,6 +510,8 @@
 
   [
     ["function", "#filter-function"],
+    ["product", "#filter-product"],
+    ["customer", "#filter-customer"],
     ["category", "#filter-category"],
     ["priority", "#filter-priority"],
     ["story", "#filter-story"],
@@ -651,6 +719,9 @@
     $("#story-due").value = story && story.due_date ? story.due_date : "";
     $("#story-function").value = story ? normalizeFunction(story.function) || "" : "Engineering";
     $("#story-priority").value = story && story.priority ? story.priority : "medium";
+    renderStoryProductOptions(story ? story.product || "" : "");
+    renderStoryCustomerOptions(story ? story.customer_id || "" : "");
+    resetStoryErrors();
     $("#story-delete").style.display = story ? "inline-block" : "none";
 
     setStoryStatusTab(status);
@@ -659,6 +730,158 @@
     $("#story-overlay").style.display = "flex";
     setTimeout(() => $("#story-title").focus(), 30);
   }
+
+  // Story form dropdowns: Product (by name) and Customer (by id), built from the master tables.
+  // The last option of each dropdown opens a small dialog instead of selecting a value.
+  const ADD_NEW_PRODUCT = "__add_new_product__";
+  const ADD_NEW_CUSTOMER = "__add_new_customer__";
+
+  function addNewOption(sel, value, label) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    sel.appendChild(opt);
+  }
+
+  function renderStoryProductOptions(selectedName) {
+    const sel = $("#story-product");
+    fillOptions(
+      sel,
+      products.map((p) => [p.name, p.name]),
+      '<option value="" disabled hidden>Select product</option>',
+      selectedName || ""
+    );
+    addNewOption(sel, ADD_NEW_PRODUCT, "+ Add New Product");
+    sel.dataset.prev = sel.value;
+  }
+
+  function renderStoryCustomerOptions(selectedId) {
+    const sel = $("#story-customer");
+    fillOptions(
+      sel,
+      customers.map((c) => [c.id, c.name]),
+      '<option value="" disabled hidden>Select customer</option>',
+      selectedId || ""
+    );
+    addNewOption(sel, ADD_NEW_CUSTOMER, "+ Add New Customer");
+    sel.dataset.prev = sel.value;
+  }
+
+  function setFieldError(id, message) {
+    const el = $(id);
+    el.textContent = message || "";
+    el.hidden = !message;
+  }
+
+  // Clears the field messages when the story form opens.
+  function resetStoryErrors() {
+    setFieldError("#story-product-error", "");
+    setFieldError("#story-customer-error", "");
+  }
+
+  // The customer used when a story is saved without one: (Demo), created in the customers table if missing.
+  const DEMO_CUSTOMER_NAME = "(Demo)";
+
+  async function ensureDemoCustomerId() {
+    const found = customers.find((c) => c.name.toLowerCase() === DEMO_CUSTOMER_NAME.toLowerCase());
+    if (found) return found.id;
+
+    const { data, error } = await sb.from("customers").insert({ name: DEMO_CUSTOMER_NAME }).select().single();
+    if (!error) {
+      customers = sortRows([...customers, data], "name");
+      render();
+      return data.id;
+    }
+
+    // Created by someone else in the meantime: use that row.
+    const { data: rows } = await sb.from("customers").select("*").ilike("name", DEMO_CUSTOMER_NAME).limit(1);
+    if (rows && rows[0]) {
+      customers = sortRows([...customers.filter((c) => c.id !== rows[0].id), rows[0]], "name");
+      return rows[0].id;
+    }
+
+    toast("Couldn't set the default customer (Demo): " + error.message);
+    return null;
+  }
+
+  function selectMasterValue(kind, value) {
+    if (kind === "product") renderStoryProductOptions(value);
+    else renderStoryCustomerOptions(value);
+    setFieldError("#story-" + kind + "-error", "");
+  }
+
+  // Small dialog for adding a product or customer name.
+  let addDialogKind = null; // "product" or "customer" while the dialog is open
+
+  function openAddDialog(kind) {
+    addDialogKind = kind;
+    const label = kind === "product" ? "Product" : "Customer";
+    $("#master-add-title").textContent = "Add " + label.toLowerCase();
+    $("#master-add-label").textContent = label + " name";
+    $("#master-add-name").placeholder = kind === "product" ? "e.g. Medicare Advantage" : "e.g. Acme Health";
+    $("#master-add-name").value = "";
+    setFieldError("#master-add-error", "");
+    $("#master-add-overlay").style.display = "flex";
+    setTimeout(() => $("#master-add-name").focus(), 30);
+  }
+
+  function closeAddDialog() {
+    $("#master-add-overlay").style.display = "none";
+    addDialogKind = null;
+  }
+
+  async function saveAddDialog() {
+    const kind = addDialogKind;
+    if (!kind) return;
+
+    const name = $("#master-add-name").value.trim().replace(/\s+/g, " ");
+    if (!name) return setFieldError("#master-add-error", "Please enter a " + kind + " name");
+
+    // Same name (ignoring case) already exists: select it instead of adding a duplicate.
+    const list = kind === "product" ? products : customers;
+    const existing = list.find((r) => r.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      selectMasterValue(kind, kind === "product" ? existing.name : existing.id);
+      closeAddDialog();
+      return toast("That " + kind + " already exists and is selected");
+    }
+
+    const btn = $("#master-add-save");
+    btn.disabled = true;
+    try {
+      const table = kind === "product" ? "products" : "customers";
+      const { data, error } = await sb.from(table).insert({ name }).select().single();
+      if (error) return setFieldError("#master-add-error", "Couldn't add " + kind + ": " + error.message);
+
+      if (kind === "product") products = sortRows([...products, data], "name");
+      else customers = sortRows([...customers, data], "name");
+
+      selectMasterValue(kind, kind === "product" ? data.name : data.id);
+      closeAddDialog();
+      render(); // updates the board filter straight away
+      toast((kind === "product" ? "Product" : "Customer") + " added");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // Choosing the "+ Add New" option opens the dialog and puts the dropdown back on its previous value.
+  function onStoryMasterChange(kind) {
+    const sel = $("#story-" + kind);
+    if (sel.value === (kind === "product" ? ADD_NEW_PRODUCT : ADD_NEW_CUSTOMER)) {
+      sel.value = sel.dataset.prev || "";
+      openAddDialog(kind);
+      return;
+    }
+    sel.dataset.prev = sel.value;
+    setFieldError("#story-" + kind + "-error", "");
+  }
+
+  $("#story-product").onchange = () => onStoryMasterChange("product");
+  $("#story-customer").onchange = () => onStoryMasterChange("customer");
+  $("#master-add-cancel").onclick = closeAddDialog;
+  $("#master-add-save").onclick = saveAddDialog;
+  $("#master-add-name").addEventListener("keydown", (e) => e.key === "Enter" && saveAddDialog());
 
   function closeStoryModal() {
     $("#story-overlay").style.display = "none";
@@ -832,6 +1055,7 @@
     $("#task-name").value = task ? task.title : "";
     $("#task-desc").value = task ? task.description || "" : "";
     $("#task-comments").value = task ? task.comments || "" : "";
+    $("#task-due").value = task && task.due_date ? task.due_date : "";
     $("#task-category").value = task && task.category ? task.category : "Feature";
     $("#task-delete").style.display = task ? "inline-block" : "none";
 
@@ -888,6 +1112,7 @@
       title,
       description: $("#task-desc").value.trim(),
       comments: $("#task-comments").value.trim() || null, // null when empty
+      due_date: $("#task-due").value || null, // date column: null, never ""
       category: $("#task-category").value || "Feature",
       status: editingTaskStatus,
       assignee_id: pickerIds[0] || null, // legacy column: kept as the first assignee
@@ -969,10 +1194,20 @@
 
     if (!title) return toast("Give the story a title");
 
+    // Product is required. A story with no customer selected gets the (Demo) customer.
+    const product = $("#story-product").value;
+    setFieldError("#story-product-error", product ? "" : "Please select a product");
+    if (!product) return;
+
+    const customerId = $("#story-customer").value || (await ensureDemoCustomerId());
+    if (!customerId) return;
+
     const payload = {
       title,
       description: $("#story-desc").value.trim(),
       function: $("#story-function").value || null,
+      product, // products.name
+      customer_id: customerId, // customers.id
       done_when: $("#story-done-when").value.trim() || null, // free text, null when empty
       priority: $("#story-priority").value || "medium",
       status: editingStatus,
@@ -1003,6 +1238,7 @@
             title: d.title,
             description: d.description,
             comments: d.comments || null,
+            due_date: d.due_date || null,
             category: d.category,
             status: d.status,
             assignee_id: taskAssigneeIds(d)[0] || null,
@@ -1084,6 +1320,8 @@
 
   function render() {
     refreshStoryFilterOptions();
+    refreshProductFilterOptions();
+    refreshCustomerFilterOptions();
 
     $("#whoami-chip").innerHTML =
       whoamiId && memberById(whoamiId)
@@ -1252,7 +1490,9 @@
         ? '<p class="card-desc">' + escapeHtml(st.description) + "</p>"
         : "") +
       '<div class="card-tags">' +
-      (st.function ? '<span class="tag">' + escapeHtml(normalizeFunction(st.function)) + "</span>" : "") +
+      (st.function ? '<span class="tag">' + escapeHtml(functionLabel(st.function)) + "</span>" : "") +
+      (st.product ? '<span class="tag">' + escapeHtml(st.product) + "</span>" : "") +
+      (customerById(st.customer_id) ? '<span class="tag dim">' + escapeHtml(customerById(st.customer_id).name) + "</span>" : "") +
       storyPriorityTag(st) +
       '<span class="tag dim">' +
       taskLabel +
