@@ -10,19 +10,10 @@
 </head>
 <body>
 <div id="app">
-  <div class="topbar">
-    <h1 id="board-title">Team Board</h1>
-  </div>
-
-  <section class="filter-section" aria-labelledby="work-filters-title">
-    <div class="section-title" id="work-filters-title"><span class="section-dot"></span>Work filters</div>
+  <section class="filter-section" aria-label="Work filters">
     <div class="filter-row">
       <select class="chip" id="filter-function" title="Filter by function">
         <option value="">All Functions</option>
-        <option value="Engineering">Engineering</option>
-        <option value="Products">Product Function</option>
-        <option value="Sales">Sales</option>
-        <option value="Marketing &amp; Lead Generation">Marketing &amp; Lead Generation</option>
       </select>
       <select class="chip" id="filter-product" title="Filter by product">
         <option value="">All Products</option>
@@ -38,8 +29,6 @@
         <option value="Testing">Testing</option>
         <option value="Documentation">Documentation</option>
       </select>
-    </div>
-    <div class="filter-row">
       <select class="chip" id="filter-priority" title="Filter by priority">
         <option value="">All Priorities</option>
         <option value="low">Low</option>
@@ -57,18 +46,15 @@
         <option value="done">Done</option>
       </select>
       <button class="chip" id="my-tasks-toggle" title="Show only tasks assigned to you">My Tasks Only</button>
-    </div>
-  </section>
-
-  <hr class="section-divider" />
-
-  <section class="team-section" aria-labelledby="team-title">
-    <div class="section-title" id="team-title"><span class="section-dot"></span>Team</div>
-    <div class="team-row">
       <button class="chip" id="manage-members-btn">Team</button>
       <button class="chip" id="whoami-chip"></button>
     </div>
   </section>
+
+
+  <div class="board-actions">
+    <button class="btn add-story-btn" id="add-story-global" type="button">+ Add Story</button>
+  </div>
 
   <div class="board" id="board">
     <!-- columns injected by app.js -->
@@ -119,13 +105,14 @@
       <div class="row-2">
         <div class="field">
           <label>Function</label>
-          <select id="story-function">
-            <option value="" disabled hidden>Select function</option>
-            <option value="Engineering">Engineering</option>
-            <option value="Products">Product Function</option>
-            <option value="Sales">Sales</option>
-            <option value="Marketing &amp; Lead Generation">Marketing &amp; Lead Generation</option>
-          </select>
+          <div class="master-pick">
+            <select id="story-function" hidden></select>
+            <button class="master-trigger" id="story-function-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span id="story-function-label" class="placeholder">Select function</span>
+            </button>
+            <div class="master-menu" id="story-function-menu" role="listbox" hidden></div>
+          </div>
+          <p class="field-error" id="story-function-error" hidden></p>
         </div>
         <div class="field">
           <label>Priority</label>
@@ -140,16 +127,24 @@
       <div class="row-2">
         <div class="field">
           <label>Product</label>
-          <select id="story-product">
-            <option value="" disabled hidden>Select product</option>
-          </select>
+          <div class="master-pick">
+            <select id="story-product" hidden></select>
+            <button class="master-trigger" id="story-product-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span id="story-product-label" class="placeholder">Select product</span>
+            </button>
+            <div class="master-menu" id="story-product-menu" role="listbox" hidden></div>
+          </div>
           <p class="field-error" id="story-product-error" hidden></p>
         </div>
         <div class="field">
           <label>Customer</label>
-          <select id="story-customer">
-            <option value="" disabled hidden>Select customer</option>
-          </select>
+          <div class="master-pick">
+            <select id="story-customer" hidden></select>
+            <button class="master-trigger" id="story-customer-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span id="story-customer-label" class="placeholder">Select customer</span>
+            </button>
+            <div class="master-menu" id="story-customer-menu" role="listbox" hidden></div>
+          </div>
           <p class="field-error" id="story-customer-error" hidden></p>
         </div>
       </div>

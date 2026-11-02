@@ -8,7 +8,8 @@
   const STATUS_LABELS = { todo: "To Do", in_progress: "In Progress", done: "Done" };
   const PALETTE = ["#5b5ff0", "#e0524c", "#2fa66a", "#d99a2b", "#0891b2", "#c026d3", "#4f46e5", "#b45309"];
 
-  document.getElementById("board-title").textContent = CONFIG.boardName || "Team Board";
+  const boardTitle = document.getElementById("board-title"); // heading removed from the page
+  if (boardTitle) boardTitle.textContent = CONFIG.boardName || "Team Board";
 
   if (!CONFIG.supabaseUrl || CONFIG.supabaseUrl.includes("YOUR-PROJECT-REF")) {
     document.getElementById("app").innerHTML =
@@ -22,6 +23,7 @@
 
   let members = [];
   let stories = [];
+  let functions = []; // functions master table (the four starting functions are seeded by the migration)
   let products = []; // products master table (seeded by the migration; more added in the app)
   let customers = []; // customers master table (empty until customers are added)
   let tasks = []; // only tasks that belong to a story (story_id set)
@@ -169,14 +171,18 @@
   }
 
   // ---------- data loading ----------
+  // Shown until the functions migration has run, so the dropdown still works.
+  const FALLBACK_FUNCTIONS = ["Engineering", "Products", "Sales", "Marketing & Lead Generation"];
+
   async function loadAll() {
-    const [mRes, sRes, tRes, aRes, cRes, pRes] = await Promise.all([
+    const [mRes, sRes, tRes, aRes, cRes, pRes, fnRes] = await Promise.all([
       loadAllRows("members", "*", ["id"]),
       loadAllRows("stories", "*", ["id"]),
       loadAllRows("tasks", "*", ["id"]),
       loadAllRows("task_assignees", "task_id, member_id, created_at", ["task_id", "member_id"]),
       loadAllRows("customers", "*", ["id"]),
       loadAllRows("products", "*", ["id"]),
+      loadAllRows("functions", "*", ["id"]),
     ]);
 
     if (mRes.error) return toast("Couldn't load members: " + mRes.error.message);
@@ -198,6 +204,12 @@
     customers = cRes.error ? [] : sortRows(cRes.data || [], "name");
     if (pRes.error && !isMissingTableError(pRes.error)) toast("Couldn't load products: " + pRes.error.message);
     products = pRes.error ? [] : sortRows(pRes.data || [], "name");
+    if (fnRes.error && !isMissingTableError(fnRes.error)) toast("Couldn't load functions: " + fnRes.error.message);
+    functions = fnRes.error
+      ? isMissingTableError(fnRes.error)
+        ? FALLBACK_FUNCTIONS.map((name) => ({ id: "fallback:" + name, name }))
+        : []
+      : sortRows(fnRes.data || [], "name");
 
     // A missing task_assignees table just means the migration hasn't run yet.
     assigneeLoadError = null;
@@ -228,6 +240,7 @@
     .channel("kanban-sync-master")
     .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, loadAll)
     .on("postgres_changes", { event: "*", schema: "public", table: "products" }, loadAll)
+    .on("postgres_changes", { event: "*", schema: "public", table: "functions" }, loadAll)
     .subscribe();
 
   // Separate channel so a not-yet-created task_assignees table can't break the main sync.
@@ -717,7 +730,7 @@
     $("#story-desc").value = story ? story.description || "" : "";
     $("#story-done-when").value = story ? story.done_when || "" : "";
     $("#story-due").value = story && story.due_date ? story.due_date : "";
-    $("#story-function").value = story ? normalizeFunction(story.function) || "" : "Engineering";
+    renderStoryFunctionOptions(story ? normalizeFunction(story.function) || "" : "Engineering");
     $("#story-priority").value = story && story.priority ? story.priority : "medium";
     renderStoryProductOptions(story ? story.product || "" : "");
     renderStoryCustomerOptions(story ? story.customer_id || "" : "");
@@ -743,28 +756,71 @@
     sel.appendChild(opt);
   }
 
-  function renderStoryProductOptions(selectedName) {
-    const sel = $("#story-product");
+  // Master lists in the story form: product, customer and function. Each dropdown opens a menu with
+  // Edit and Delete beside every entry, and "+ Add New" at the bottom.
+  const ADD_NEW_FUNCTION = "__add_new_function__";
+  const MASTER = {
+    product: { table: "products", field: "product", noun: "product", placeholder: "Select product", add: ADD_NEW_PRODUCT, addText: "+ Add New Product" },
+    customer: { table: "customers", field: "customer_id", noun: "customer", placeholder: "Select customer", add: ADD_NEW_CUSTOMER, addText: "+ Add New Customer" },
+    function: { table: "functions", field: "function", noun: "function", placeholder: "Select function", add: ADD_NEW_FUNCTION, addText: "+ Add New Function" },
+  };
+  const MASTER_KINDS = Object.keys(MASTER);
+
+  function masterList(kind) {
+    return kind === "product" ? products : kind === "customer" ? customers : functions;
+  }
+
+  function setMasterList(kind, rows) {
+    if (kind === "product") products = rows;
+    else if (kind === "customer") customers = rows;
+    else functions = rows;
+  }
+
+  // Customers are referenced by id; products and functions by name.
+  function masterValue(kind, item) {
+    return kind === "customer" ? item.id : item.name;
+  }
+
+  // Functions show their display name (for example "Products" is shown as "Product Function").
+  function masterDisplay(kind, item) {
+    return kind === "function" ? functionLabel(item.name) : item.name;
+  }
+
+  function renderStoryMaster(kind, selected) {
+    const sel = $("#story-" + kind);
     fillOptions(
       sel,
-      products.map((p) => [p.name, p.name]),
-      '<option value="" disabled hidden>Select product</option>',
-      selectedName || ""
+      masterList(kind).map((r) => [masterValue(kind, r), masterDisplay(kind, r)]),
+      '<option value="" disabled hidden>' + MASTER[kind].placeholder + "</option>",
+      selected || ""
     );
-    addNewOption(sel, ADD_NEW_PRODUCT, "+ Add New Product");
+    addNewOption(sel, MASTER[kind].add, MASTER[kind].addText);
     sel.dataset.prev = sel.value;
+    updateMasterTrigger(kind);
+  }
+
+  function renderStoryProductOptions(selectedName) {
+    renderStoryMaster("product", selectedName);
   }
 
   function renderStoryCustomerOptions(selectedId) {
-    const sel = $("#story-customer");
-    fillOptions(
+    renderStoryMaster("customer", selectedId);
+  }
+
+  function renderStoryFunctionOptions(selectedName) {
+    renderStoryMaster("function", selectedName);
+  }
+
+  // Board filter: one option per function, shown with its display name.
+  function refreshFunctionFilterOptions() {
+    const sel = $("#filter-function");
+    if (!sel) return;
+    boardFilters.function = fillOptions(
       sel,
-      customers.map((c) => [c.id, c.name]),
-      '<option value="" disabled hidden>Select customer</option>',
-      selectedId || ""
+      functions.map((f) => [f.name, functionLabel(f.name)]),
+      '<option value="">All Functions</option>',
+      boardFilters.function
     );
-    addNewOption(sel, ADD_NEW_CUSTOMER, "+ Add New Customer");
-    sel.dataset.prev = sel.value;
   }
 
   function setFieldError(id, message) {
@@ -777,6 +833,7 @@
   function resetStoryErrors() {
     setFieldError("#story-product-error", "");
     setFieldError("#story-customer-error", "");
+    setFieldError("#story-function-error", "");
   }
 
   // The customer used when a story is saved without one: (Demo), created in the customers table if missing.
@@ -804,81 +861,310 @@
     return null;
   }
 
+  // Friendlier text when a list's table is missing (its migration has not been run yet).
+  function dbErrorText(error, kind) {
+    if (isMissingTableError(error) || /schema cache/i.test(error.message)) {
+      return "The " + MASTER[kind].noun + " list needs its database migration first. Run " + (kind === "function" ? "supabase-migration-functions.sql" : "supabase-migration-story-product-customer.sql") + " (see the project files).";
+    }
+    return error.message;
+  }
+
+  function capitalise(s) {
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
   function selectMasterValue(kind, value) {
-    if (kind === "product") renderStoryProductOptions(value);
-    else renderStoryCustomerOptions(value);
+    renderStoryMaster(kind, value);
     setFieldError("#story-" + kind + "-error", "");
   }
 
-  // Small dialog for adding a product or customer name.
-  let addDialogKind = null; // "product" or "customer" while the dialog is open
+  // Shows the chosen name on the dropdown button, or its placeholder.
+  function updateMasterTrigger(kind) {
+    const sel = $("#story-" + kind);
+    const item = masterList(kind).find((r) => masterValue(kind, r) === sel.value);
+    const label = $("#story-" + kind + "-label");
+    label.textContent = item ? masterDisplay(kind, item) : MASTER[kind].placeholder;
+    label.classList.toggle("placeholder", !item);
+  }
+
+  // Small dialog for adding a name, or renaming one (the same dialog serves both).
+  let addDialogKind = null; // "product", "customer" or "function" while the dialog is open
+  let addDialogRename = null; // the item being renamed, while the dialog is a rename
 
   function openAddDialog(kind) {
     addDialogKind = kind;
-    const label = kind === "product" ? "Product" : "Customer";
-    $("#master-add-title").textContent = "Add " + label.toLowerCase();
-    $("#master-add-label").textContent = label + " name";
-    $("#master-add-name").placeholder = kind === "product" ? "e.g. Medicare Advantage" : "e.g. Acme Health";
+    addDialogRename = null;
+    $("#master-add-save").textContent = "Add";
+    const noun = MASTER[kind].noun;
+    $("#master-add-title").textContent = "Add " + noun;
+    $("#master-add-label").textContent = capitalise(noun) + " name";
+    $("#master-add-name").placeholder = kind === "product" ? "e.g. Medicare Advantage" : kind === "customer" ? "e.g. Acme Health" : "e.g. Operations";
     $("#master-add-name").value = "";
     setFieldError("#master-add-error", "");
     $("#master-add-overlay").style.display = "flex";
     setTimeout(() => $("#master-add-name").focus(), 30);
   }
 
+  function openRenameDialog(kind, item) {
+    addDialogKind = kind;
+    addDialogRename = item;
+    const noun = MASTER[kind].noun;
+    $("#master-add-title").textContent = "Rename " + noun;
+    $("#master-add-label").textContent = capitalise(noun) + " name";
+    $("#master-add-name").value = item.name;
+    $("#master-add-save").textContent = "Save";
+    setFieldError("#master-add-error", "");
+    $("#master-add-overlay").style.display = "flex";
+    setTimeout(() => {
+      $("#master-add-name").focus();
+      $("#master-add-name").select();
+    }, 30);
+  }
+
   function closeAddDialog() {
     $("#master-add-overlay").style.display = "none";
     addDialogKind = null;
+    addDialogRename = null;
   }
 
   async function saveAddDialog() {
     const kind = addDialogKind;
     if (!kind) return;
+    if (addDialogRename) return saveRenameDialog();
 
     const name = $("#master-add-name").value.trim().replace(/\s+/g, " ");
-    if (!name) return setFieldError("#master-add-error", "Please enter a " + kind + " name");
+    if (!name) return setFieldError("#master-add-error", "Please enter a " + MASTER[kind].noun + " name");
 
     // Same name (ignoring case) already exists: select it instead of adding a duplicate.
-    const list = kind === "product" ? products : customers;
-    const existing = list.find((r) => r.name.toLowerCase() === name.toLowerCase());
+    const existing = masterList(kind).find((r) => r.name.toLowerCase() === name.toLowerCase());
     if (existing) {
-      selectMasterValue(kind, kind === "product" ? existing.name : existing.id);
+      selectMasterValue(kind, masterValue(kind, existing));
       closeAddDialog();
-      return toast("That " + kind + " already exists and is selected");
+      return toast("That " + MASTER[kind].noun + " already exists and is selected");
     }
 
     const btn = $("#master-add-save");
     btn.disabled = true;
     try {
-      const table = kind === "product" ? "products" : "customers";
-      const { data, error } = await sb.from(table).insert({ name }).select().single();
-      if (error) return setFieldError("#master-add-error", "Couldn't add " + kind + ": " + error.message);
+      const { data, error } = await sb.from(MASTER[kind].table).insert({ name }).select().single();
+      if (error) return setFieldError("#master-add-error", "Couldn't add " + MASTER[kind].noun + ": " + dbErrorText(error, kind));
 
-      if (kind === "product") products = sortRows([...products, data], "name");
-      else customers = sortRows([...customers, data], "name");
-
-      selectMasterValue(kind, kind === "product" ? data.name : data.id);
+      setMasterList(kind, sortRows([...masterList(kind), data], "name"));
+      selectMasterValue(kind, masterValue(kind, data));
       closeAddDialog();
       render(); // updates the board filter straight away
-      toast((kind === "product" ? "Product" : "Customer") + " added");
+      toast(capitalise(MASTER[kind].noun) + " added");
     } finally {
       btn.disabled = false;
     }
   }
 
-  // Choosing the "+ Add New" option opens the dialog and puts the dropdown back on its previous value.
+  // Choosing "+ Add New" opens the dialog and puts the dropdown back on its previous value.
   function onStoryMasterChange(kind) {
     const sel = $("#story-" + kind);
-    if (sel.value === (kind === "product" ? ADD_NEW_PRODUCT : ADD_NEW_CUSTOMER)) {
+    if (sel.value === MASTER[kind].add) {
       sel.value = sel.dataset.prev || "";
       openAddDialog(kind);
       return;
     }
     sel.dataset.prev = sel.value;
     setFieldError("#story-" + kind + "-error", "");
+    updateMasterTrigger(kind);
   }
 
+  // ---------- story form menus: rename and delete ----------
+  // Stories link to products and functions by name and to customers by id. A product or function
+  // rename adds the new name, moves the stories onto it and removes the old row. A name or customer
+  // used by any story is never deleted: the delete is refused with a message.
+  function manageIconButton(svg, label, extraClass) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "icon-action" + (extraClass || "");
+    b.title = label;
+    b.setAttribute("aria-label", label);
+    b.innerHTML = svg;
+    return b;
+  }
+
+  function closeMasterMenus() {
+    MASTER_KINDS.forEach((k) => {
+      $("#story-" + k + "-menu").hidden = true;
+      $("#story-" + k + "-trigger").setAttribute("aria-expanded", "false");
+    });
+  }
+
+  function toggleMasterMenu(kind) {
+    const menu = $("#story-" + kind + "-menu");
+    const wasOpen = !menu.hidden;
+    closeMasterMenus();
+    if (wasOpen) return;
+    renderMasterMenu(kind);
+    menu.hidden = false;
+    $("#story-" + kind + "-trigger").setAttribute("aria-expanded", "true");
+  }
+
+  function chooseMasterItem(kind, value) {
+    const sel = $("#story-" + kind);
+    sel.value = value;
+    closeMasterMenus();
+    sel.dispatchEvent(new Event("change")); // handled by onStoryMasterChange (also covers "+ Add New")
+  }
+
+  function renderMasterMenu(kind) {
+    const menu = $("#story-" + kind + "-menu");
+    const selected = $("#story-" + kind).value;
+    const noun = MASTER[kind].noun;
+    const rows = masterList(kind);
+    menu.innerHTML = "";
+
+    if (rows.length === 0) menu.insertAdjacentHTML("beforeend", '<div class="empty-hint">No ' + noun + "s yet.</div>");
+
+    rows.forEach((item) => {
+      const value = masterValue(kind, item);
+      const row = document.createElement("div");
+      row.className = "master-item" + (value === selected ? " selected" : "");
+
+      const pick = document.createElement("button");
+      pick.type = "button";
+      pick.className = "master-item-name";
+      pick.textContent = masterDisplay(kind, item);
+      pick.onclick = () => chooseMasterItem(kind, value);
+
+      const edit = manageIconButton(ICON_EDIT, "Rename " + noun);
+      edit.onclick = (e) => {
+        e.stopPropagation();
+        closeMasterMenus();
+        openRenameDialog(kind, item);
+      };
+
+      const del = manageIconButton(ICON_DELETE, "Delete " + noun, " danger");
+      del.onclick = (e) => {
+        e.stopPropagation();
+        deleteMaster(kind, item);
+      };
+
+      row.append(pick, edit, del);
+      menu.appendChild(row);
+    });
+
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "master-add-item";
+    add.textContent = MASTER[kind].addText;
+    add.onclick = () => chooseMasterItem(kind, MASTER[kind].add);
+    menu.appendChild(add);
+  }
+
+  MASTER_KINDS.forEach((kind) => {
+    $("#story-" + kind + "-trigger").onclick = (e) => {
+      e.stopPropagation();
+      toggleMasterMenu(kind);
+    };
+  });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".master-pick")) closeMasterMenus();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeMasterMenus();
+  });
+
+  async function saveRenameDialog() {
+    const kind = addDialogKind;
+    const item = addDialogRename;
+    const newName = $("#master-add-name").value.trim().replace(/\s+/g, " ");
+    if (!newName) return setFieldError("#master-add-error", "Please enter a name");
+    if (newName === item.name) return closeAddDialog();
+
+    const clash = masterList(kind).find((r) => r.id !== item.id && r.name.toLowerCase() === newName.toLowerCase());
+    if (clash) return setFieldError("#master-add-error", '"' + newName + '" already exists.');
+    if (kind !== "customer" && newName.toLowerCase() === item.name.toLowerCase()) {
+      return setFieldError(
+        "#master-add-error",
+        "To change only the capitals, rename it to something else first, then rename it back."
+      );
+    }
+
+    const btn = $("#master-add-save");
+    btn.disabled = true;
+    try {
+      const ok = kind === "customer" ? await renameCustomer(item, newName) : await renameByName(kind, item, newName);
+      if (!ok) return;
+
+      await loadAll();
+      if (kind === "customer") {
+        renderStoryMaster("customer", $("#story-customer").value);
+      } else {
+        const current = $("#story-" + kind).value === item.name ? newName : $("#story-" + kind).value;
+        renderStoryMaster(kind, current);
+        if (kind === "product" && boardFilters.product === item.name) boardFilters.product = newName;
+        if (kind === "function" && boardFilters.function === item.name) boardFilters.function = newName;
+      }
+      closeAddDialog();
+      toast(capitalise(MASTER[kind].noun) + " renamed");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function renameCustomer(item, newName) {
+    const { error } = await sb.from("customers").update({ name: newName }).eq("id", item.id);
+    if (error) {
+      setFieldError("#master-add-error", "Couldn't rename the customer: " + error.message);
+      return false;
+    }
+    return true;
+  }
+
+  // Products and functions are referenced by name: add the new name, move the stories, remove the old row.
+  async function renameByName(kind, item, newName) {
+    const cfg = MASTER[kind];
+    const { data: created, error: addErr } = await sb.from(cfg.table).insert({ name: newName }).select().single();
+    if (addErr) {
+      setFieldError("#master-add-error", "Couldn't rename the " + cfg.noun + ": " + dbErrorText(addErr, kind));
+      return false;
+    }
+
+    const { error: moveErr } = await sb.from("stories").update({ [cfg.field]: newName }).eq(cfg.field, item.name);
+    if (moveErr) {
+      await sb.from(cfg.table).delete().eq("id", created.id); // undo the new row
+      setFieldError("#master-add-error", "Couldn't rename the " + cfg.noun + ": " + dbErrorText(moveErr, kind));
+      return false;
+    }
+
+    const { error: delErr } = await sb.from(cfg.table).delete().eq("id", item.id);
+    if (delErr) toast('Stories now use "' + newName + '", but the old name couldn\'t be removed: ' + delErr.message);
+    return true;
+  }
+
+  async function deleteMaster(kind, item) {
+    closeMasterMenus();
+    const cfg = MASTER[kind];
+    const value = masterValue(kind, item);
+
+    // A name or customer used by any story is never deleted.
+    const usage = await sb.from("stories").select("id").eq(cfg.field, value);
+    if (usage.error) return toast("Couldn't check the stories: " + usage.error.message);
+    if (usage.data.length) {
+      const n = usage.data.length;
+      return toast(
+        '"' + masterDisplay(kind, item) + '" is used by ' + n + (n === 1 ? " story" : " stories") +
+          ", so it can't be deleted. Change those stories to another " + cfg.noun + " first."
+      );
+    }
+
+    if (!confirm("Delete " + cfg.noun + ' "' + masterDisplay(kind, item) + '"? This cannot be undone.')) return;
+
+    const { error } = await sb.from(cfg.table).delete().eq("id", item.id);
+    if (error) return toast("Couldn't delete the " + cfg.noun + ": " + dbErrorText(error, kind));
+
+    if ($("#story-" + kind).value === value) renderStoryMaster(kind, "");
+    if (kind === "function" && boardFilters.function === item.name) boardFilters.function = "";
+    await loadAll();
+    toast(capitalise(cfg.noun) + " deleted");
+  }
   $("#story-product").onchange = () => onStoryMasterChange("product");
   $("#story-customer").onchange = () => onStoryMasterChange("customer");
+  $("#story-function").onchange = () => onStoryMasterChange("function");
   $("#master-add-cancel").onclick = closeAddDialog;
   $("#master-add-save").onclick = saveAddDialog;
   $("#master-add-name").addEventListener("keydown", (e) => e.key === "Enter" && saveAddDialog());
@@ -1084,6 +1370,9 @@
   });
 
   $("#story-add-task").onclick = () => openTaskModal(null);
+
+  // Single "+ Add Story" button (bottom-right); new stories start in To Do.
+  $("#add-story-global").onclick = () => openStoryModal("todo", null);
 
   $("#task-cancel").onclick = () => ($("#task-overlay").style.display = "none");
 
@@ -1320,6 +1609,7 @@
 
   function render() {
     refreshStoryFilterOptions();
+    refreshFunctionFilterOptions();
     refreshProductFilterOptions();
     refreshCustomerFilterOptions();
 
@@ -1397,13 +1687,6 @@
       shown.forEach((st) => list.appendChild(renderStoryGroup(st)));
 
       col.appendChild(list);
-
-      const addBtn = document.createElement("button");
-      addBtn.className = "add-card-btn";
-      addBtn.textContent = "+ Add Story";
-      addBtn.onclick = () => openStoryModal(s.key, null);
-
-      col.appendChild(addBtn);
 
       boardEl.appendChild(col);
     });

@@ -17,7 +17,7 @@
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
+html, body { height: 100%; overflow: hidden; }
 body {
   margin: 0;
   background: var(--bg);
@@ -25,7 +25,8 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-#app { min-height: 100vh; display: flex; flex-direction: column; }
+/* the page itself never scrolls: the filters stay put and only the columns scroll */
+#app { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
 
 /* ---------- Top bar ---------- */
 .topbar {
@@ -89,11 +90,12 @@ body {
 /* ---------- Board ---------- */
 .board {
   flex: 1;
+  min-height: 0;
   display: flex;
   gap: 16px;
-  padding: 20px 24px 32px;
+  padding: 12px 24px 16px;
   overflow-x: auto;
-  align-items: flex-start;
+  align-items: stretch;
 }
 .column {
   background: #eceef3;
@@ -102,7 +104,7 @@ body {
   min-width: 320px;
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 100px);
+  min-height: 0; /* stretches to the board height; only .card-list scrolls */
 }
 .column.dragover { outline: 2px dashed var(--accent); outline-offset: -4px; }
 
@@ -459,7 +461,7 @@ body:has(#story-overlay[style*="flex"]) { overflow: hidden; }
 
 /* ---------- Work filters and Team sections (dashboard layout) ---------- */
 .filter-section,
-.team-section { background: var(--panel); padding: 14px 24px; }
+.team-section { background: var(--panel); padding: 10px 24px; }
 .section-title {
   display: flex;
   align-items: center;
@@ -474,16 +476,16 @@ body:has(#story-overlay[style*="flex"]) { overflow: hidden; }
 .section-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--purple); flex-shrink: 0; }
 .filter-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 8px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 6px;
 }
 .filter-row:last-child { margin-bottom: 0; }
 .filter-section .chip,
 .team-section .chip {
   width: 100%;
   max-width: none !important;
-  height: 36px;
+  height: 32px;
   padding: 0 12px;
   border-radius: 10px;
   background: #f8f9fb;
@@ -504,12 +506,88 @@ body:has(#story-overlay[style*="flex"]) { overflow: hidden; }
 .filter-section .chip:hover { border-color: var(--purple); }
 
 @media (max-width: 900px) {
-  .filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filter-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 640px) {
   .filter-section,
-  .team-section { padding: 12px 14px; }
-  .filter-row { gap: 8px; }
+  .team-section { padding: 8px 14px; }
+  /* on phones the filters can take many rows: cap them so the board keeps room */
+  .filter-section { max-height: 40vh; overflow-y: auto; }
+  .filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .filter-row .chip { font-size: 12.5px; padding: 0 10px; }
   .team-row .chip { flex: 1 1 140px; }
 }
+
+/* single "+ Add Story" button, top-right above the columns */
+.board-actions { display: flex; justify-content: flex-end; padding: 10px 24px 0; }
+
+/* story form: product and customer menus (name, then Edit and Delete beside it) */
+.master-pick { position: relative; }
+.master-trigger {
+  width: 100%;
+  min-height: 38px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.master-trigger::after { content: "\25BE"; color: var(--text-dim); margin-left: 8px; }
+.master-trigger:hover, .master-trigger[aria-expanded="true"] { border-color: var(--accent); }
+.master-trigger span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.master-trigger span.placeholder { color: var(--text-dim); }
+.master-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 60;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.master-menu[hidden] { display: none; }
+.master-item { display: flex; align-items: center; gap: 4px; padding: 0 2px 0 8px; border-radius: 7px; }
+.master-item:hover { background: var(--bg); }
+.master-item.selected .master-item-name { color: var(--accent); font-weight: 700; }
+.master-item-name {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.master-add-item {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 7px 7px;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+}
+.master-add-item:hover { background: var(--accent-dim); }
