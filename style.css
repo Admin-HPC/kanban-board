@@ -493,14 +493,10 @@ body:has(#story-overlay[style*="flex"]) { overflow: hidden; }
   box-sizing: border-box;
 }
 .filter-row select.chip { appearance: auto; }
-#my-tasks-toggle { border: 1.5px solid var(--purple); color: var(--purple); background: #fff; justify-content: center; }
-#my-tasks-toggle:hover { border-color: var(--purple); background: var(--purple-dim); }
-#my-tasks-toggle.active {
-  background: var(--purple-dim);
-  border-color: var(--purple);
-  color: var(--purple);
-  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.16);
-}
+/* inactive by default; purple only while the toggle is on (.active set in app.js) */
+#my-tasks-toggle { background: #f8f9fb; border: 1px solid var(--border); color: var(--text); justify-content: center; }
+#my-tasks-toggle.active { background: var(--purple); border-color: var(--purple); color: #fff; }
+#my-tasks-toggle.active:hover { background: #6d28d9; border-color: #6d28d9; }
 .section-divider { margin: 0; border: 0; border-top: 1px solid var(--border); }
 .team-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .team-row .chip { width: auto; min-width: 120px; }
