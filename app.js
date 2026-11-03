@@ -228,25 +228,33 @@
     if ($("#members-overlay").style.display === "flex") renderMemberManageList();
   }
 
+  // Realtime sends one event per changed row, so a bulk change (renaming a function on 26 stories)
+  // would reload everything many times. Events within a short window share one reload.
+  let reloadTimer = null;
+  function scheduleLoadAll() {
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(() => loadAll(), 300);
+  }
+
   sb
     .channel("kanban-sync")
-    .on("postgres_changes", { event: "*", schema: "public", table: "stories" }, loadAll)
-    .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, loadAll)
-    .on("postgres_changes", { event: "*", schema: "public", table: "members" }, loadAll)
+    .on("postgres_changes", { event: "*", schema: "public", table: "stories" }, scheduleLoadAll)
+    .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, scheduleLoadAll)
+    .on("postgres_changes", { event: "*", schema: "public", table: "members" }, scheduleLoadAll)
     .subscribe();
 
   // Separate channel so a not-yet-created products/customers table can't break the main sync.
   sb
     .channel("kanban-sync-master")
-    .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, loadAll)
-    .on("postgres_changes", { event: "*", schema: "public", table: "products" }, loadAll)
-    .on("postgres_changes", { event: "*", schema: "public", table: "functions" }, loadAll)
+    .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, scheduleLoadAll)
+    .on("postgres_changes", { event: "*", schema: "public", table: "products" }, scheduleLoadAll)
+    .on("postgres_changes", { event: "*", schema: "public", table: "functions" }, scheduleLoadAll)
     .subscribe();
 
   // Separate channel so a not-yet-created task_assignees table can't break the main sync.
   sb
     .channel("kanban-sync-assignees")
-    .on("postgres_changes", { event: "*", schema: "public", table: "task_assignees" }, loadAll)
+    .on("postgres_changes", { event: "*", schema: "public", table: "task_assignees" }, scheduleLoadAll)
     .subscribe();
 
   // ---------- who-am-i ----------
@@ -865,6 +873,9 @@
   function dbErrorText(error, kind) {
     if (isMissingTableError(error) || /schema cache/i.test(error.message)) {
       return "The " + MASTER[kind].noun + " list needs its database migration first. Run " + (kind === "function" ? "supabase-migration-functions.sql" : "supabase-migration-story-product-customer.sql") + " (see the project files).";
+    }
+    if (/check constraint/i.test(error.message)) {
+      return "The database still has the old function restriction (stories_department_check), so this name is refused. Run supabase-fix-stories-function-check.sql once, then try again.";
     }
     return error.message;
   }
