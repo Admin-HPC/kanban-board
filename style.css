@@ -96,6 +96,8 @@ body {
   padding: 12px 24px 16px;
   overflow-x: auto;
   align-items: stretch;
+  justify-content: center; /* centre the columns when they fit; "safe" keeps them scrollable when they don't */
+  justify-content: safe center;
 }
 .column {
   background: #eceef3;
@@ -518,8 +520,8 @@ body:has(#story-overlay[style*="flex"]) { overflow: hidden; }
   .team-row .chip { flex: 1 1 140px; }
 }
 
-/* single "+ Add Story" button, top-right above the columns */
-.board-actions { display: flex; justify-content: flex-end; padding: 10px 24px 0; }
+/* single "+ Add Story" button, centred below the columns */
+.board-actions { display: flex; justify-content: center; padding: 8px 24px 12px; flex-shrink: 0; }
 
 /* story form: product and customer menus (name, then Edit and Delete beside it) */
 .master-pick { position: relative; }
