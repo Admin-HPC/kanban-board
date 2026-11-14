@@ -510,6 +510,7 @@
     if (boardFilters.customer && (s.customer_id || "") !== boardFilters.customer) return false;
     if (boardFilters.priority && (s.priority || "medium").toLowerCase() !== boardFilters.priority) return false;
     if (boardFilters.story && s.id !== boardFilters.story) return false;
+    if (!storyMatchesSearch(s)) return false;
     return true;
   }
 
@@ -542,6 +543,86 @@
       boardFilters[name] = $(sel).value;
       render();
     };
+  });
+
+  // ---------- search dropdown (stories by title/description, assignee by name, task by name) ----------
+  const SEARCH_MODES = {
+    stories: { label: "Stories", placeholder: "Search stories by title or description" },
+    assignee: { label: "Assignee", placeholder: "Search team members by name" },
+    task: { label: "Task", placeholder: "Search task names" },
+  };
+  let searchMode = ""; // "" = no search active
+  let searchQuery = "";
+
+  // Story-level search check; used by storyMatchesFilters so it combines with the other filters.
+  function storyMatchesSearch(st) {
+    const q = searchQuery.trim().toLowerCase();
+    if (!searchMode || !q) return true;
+    const has = (value) => String(value || "").toLowerCase().includes(q);
+    if (searchMode === "stories") return has(st.title) || has(st.description);
+    if (searchMode === "assignee") return storyMembers(st).some((m) => has(m.name));
+    return tasksForStory(st.id).some((t) => has(t.title));
+  }
+
+  function closeSearchMenu() {
+    $("#search-menu").hidden = true;
+    $("#search-mode-btn").setAttribute("aria-expanded", "false");
+  }
+
+  function updateSearchControls() {
+    const modeBtn = $("#search-mode-btn");
+    const info = SEARCH_MODES[searchMode];
+    modeBtn.textContent = info ? info.label + " ▾" : "Search ▾";
+    modeBtn.title = info ? "Search: " + info.label : "Search stories, assignees or tasks";
+    $("#search-menu").querySelectorAll("[data-mode]").forEach((b) =>
+      b.classList.toggle("selected", b.dataset.mode === searchMode)
+    );
+    $("#search-input-wrap").hidden = !info;
+    if (info) {
+      $("#search-input").placeholder = info.placeholder;
+      $("#search-input").value = searchQuery;
+    }
+  }
+
+  $("#search-mode-btn").onclick = (e) => {
+    e.stopPropagation();
+    const menu = $("#search-menu");
+    menu.hidden = !menu.hidden;
+    $("#search-mode-btn").setAttribute("aria-expanded", String(!menu.hidden));
+  };
+
+  $("#search-menu").querySelectorAll("[data-mode]").forEach((btn) => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      searchMode = btn.dataset.mode; // switching mode keeps the typed text and re-runs it
+      closeSearchMenu();
+      updateSearchControls();
+      render();
+      $("#search-input").focus();
+    };
+  });
+
+  $("#search-input").oninput = () => {
+    searchQuery = $("#search-input").value;
+    render();
+  };
+
+  // X resets the whole search: text, mode and the input itself.
+  $("#search-clear").onclick = () => {
+    searchMode = "";
+    searchQuery = "";
+    closeSearchMenu();
+    updateSearchControls();
+    render();
+  };
+
+  updateSearchControls();
+
+  document.addEventListener("click", (e) => {
+    if (!$("#search-filter").contains(e.target)) closeSearchMenu();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeSearchMenu();
   });
 
   // ---------- shared helpers for modals ----------

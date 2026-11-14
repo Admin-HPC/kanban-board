@@ -478,10 +478,12 @@ body:has(#story-overlay[style*="flex"]) { overflow: hidden; }
 .section-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--purple); flex-shrink: 0; }
 .filter-row {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr)); /* 6 so the second row (All Stories, Search, status, My Tasks, Team, user) fits on one line */
   gap: 6px;
   margin-bottom: 6px;
 }
+/* desktop: All Stories starts the second row, so row 1 keeps its 5 controls and row 2 has 6 */
+#filter-story { grid-column-start: 1; }
 .filter-row:last-child { margin-bottom: 0; }
 .filter-section .chip,
 .team-section .chip {
@@ -507,8 +509,41 @@ body:has(#story-overlay[style*="flex"]) { overflow: hidden; }
 .team-section .chip:hover,
 .filter-section .chip:hover { border-color: var(--purple); }
 
+/* search dropdown beside "All Stories": the mode chip, then the input and X once a mode is picked */
+.search-filter { position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.search-filter .search-mode-btn { width: auto; flex: 0 0 auto; }
+.search-filter .search-mode-btn[aria-expanded="true"] { border-color: var(--purple); }
+.search-input-wrap { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 4px; }
+.search-input-wrap[hidden], .search-menu[hidden] { display: none; }
+.search-input {
+  flex: 1 1 auto; min-width: 0; width: 100%; height: 32px; box-sizing: border-box;
+  padding: 0 10px; border: 1px solid var(--border); border-radius: 10px;
+  background: #f8f9fb; color: var(--text); font-family: inherit; font-size: 13px;
+}
+.search-input:focus { outline: none; border-color: var(--purple); }
+/* hide the browser's own search X; the .search-clear button is the one reset */
+.search-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
+.search-clear {
+  flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: none; border-radius: 50%;
+  background: transparent; color: var(--text-dim); font-size: 18px; line-height: 1; cursor: pointer;
+}
+.search-clear:hover { background: var(--bg); color: var(--danger); }
+.search-menu {
+  position: absolute; left: 0; top: calc(100% + 4px); z-index: 60;
+  min-width: 100%; width: max-content;
+  background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 4px;
+}
+.search-menu button {
+  display: block; width: 100%; padding: 7px 10px; border: none; border-radius: 7px;
+  background: none; color: var(--text); font-family: inherit; font-size: 13px; font-weight: 500;
+  text-align: left; cursor: pointer;
+}
+.search-menu button:hover { background: var(--bg); }
+.search-menu button.selected { color: var(--purple); font-weight: 700; }
+
 @media (max-width: 900px) {
   .filter-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #filter-story { grid-column-start: auto; }
 }
 @media (max-width: 640px) {
   .filter-section,

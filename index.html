@@ -39,6 +39,18 @@
       <select class="chip" id="filter-story" title="Filter by story">
         <option value="">All Stories</option>
       </select>
+      <div class="search-filter" id="search-filter">
+        <button class="chip search-mode-btn" id="search-mode-btn" type="button" aria-haspopup="menu" aria-expanded="false" title="Search stories, assignees or tasks">Search</button>
+        <div class="search-menu" id="search-menu" role="menu" hidden>
+          <button type="button" role="menuitem" data-mode="stories">Search Stories</button>
+          <button type="button" role="menuitem" data-mode="assignee">Search Assignee</button>
+          <button type="button" role="menuitem" data-mode="task">Search Task</button>
+        </div>
+        <div class="search-input-wrap" id="search-input-wrap" hidden>
+          <input type="search" class="search-input" id="search-input" autocomplete="off" aria-label="Search" />
+          <button type="button" class="search-clear" id="search-clear" title="Clear search" aria-label="Clear search">&times;</button>
+        </div>
+      </div>
       <select class="chip" id="filter-status" title="Filter by status">
         <option value="">All Status</option>
         <option value="todo">To Do</option>
